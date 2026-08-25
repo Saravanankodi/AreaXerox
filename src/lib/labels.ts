@@ -59,7 +59,7 @@ export function nextStatus(current: OrderStatus, fulfillment: Fulfillment): Orde
   const flow = statusFlow(fulfillment);
   const i = flow.indexOf(current);
   if (i < 0 || i === flow.length - 1) return null;
-  return flow[i + 1];
+  return flow[i + 1] ?? null;
 }
 
 export function nextActionLabel(next: OrderStatus): string {

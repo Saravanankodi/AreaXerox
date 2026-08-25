@@ -15,9 +15,11 @@ export function countRangePages(range: string, total: number) {
   const parts = range.split(",").map((p) => p.trim()).filter(Boolean);
   let count = 0;
   for (const part of parts) {
-    const [a, b] = part.split("-").map((n) => parseInt(n, 10));
-    if (Number.isNaN(a)) continue;
-    if (b && !Number.isNaN(b)) count += Math.max(0, Math.min(b, total) - a + 1);
+    const nums = part.split("-").map((n) => parseInt(n, 10));
+    const a = nums[0];
+    const b = nums[1];
+    if (a === undefined || Number.isNaN(a)) continue;
+    if (b !== undefined && !Number.isNaN(b)) count += Math.max(0, Math.min(b, total) - a + 1);
     else count += a <= total ? 1 : 0;
   }
   return count;
