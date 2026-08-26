@@ -18,6 +18,7 @@ import { Route as OrdersIndexRouteImport } from './routes/orders.index'
 import { Route as OrdersOrderIdRouteImport } from './routes/orders.$orderId'
 import { Route as ShopIndexRouteImport } from './routes/shop.index'
 import { Route as ShopOrdersRouteImport } from './routes/shop.orders'
+import { Route as ShopServicesRouteImport } from './routes/shop.services'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -64,6 +65,11 @@ const ShopOrdersRoute = ShopOrdersRouteImport.update({
   path: '/shop/orders',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ShopServicesRoute = ShopServicesRouteImport.update({
+  id: '/shop/services',
+  path: '/shop/services',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/support': typeof SupportRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/shop/orders': typeof ShopOrdersRoute
+  '/shop/services': typeof ShopServicesRoute
   '/orders/': typeof OrdersIndexRoute
   '/shop/': typeof ShopIndexRoute
 }
@@ -84,6 +91,7 @@ export interface FileRoutesByTo {
   '/support': typeof SupportRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/shop/orders': typeof ShopOrdersRoute
+  '/shop/services': typeof ShopServicesRoute
   '/orders': typeof OrdersIndexRoute
   '/shop': typeof ShopIndexRoute
 }
@@ -96,6 +104,7 @@ export interface FileRoutesById {
   '/support': typeof SupportRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/shop/orders': typeof ShopOrdersRoute
+  '/shop/services': typeof ShopServicesRoute
   '/orders/': typeof OrdersIndexRoute
   '/shop/': typeof ShopIndexRoute
 }
@@ -109,6 +118,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/orders/$orderId'
     | '/shop/orders'
+    | '/shop/services'
     | '/orders/'
     | '/shop/'
   fileRoutesByTo: FileRoutesByTo
@@ -120,6 +130,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/orders/$orderId'
     | '/shop/orders'
+    | '/shop/services'
     | '/orders'
     | '/shop'
   id:
@@ -131,6 +142,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/orders/$orderId'
     | '/shop/orders'
+    | '/shop/services'
     | '/orders/'
     | '/shop/'
   fileRoutesById: FileRoutesById
@@ -143,6 +155,7 @@ export interface RootRouteChildren {
   SupportRoute: typeof SupportRoute
   OrdersOrderIdRoute: typeof OrdersOrderIdRoute
   ShopOrdersRoute: typeof ShopOrdersRoute
+  ShopServicesRoute: typeof ShopServicesRoute
   OrdersIndexRoute: typeof OrdersIndexRoute
   ShopIndexRoute: typeof ShopIndexRoute
 }
@@ -212,6 +225,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShopOrdersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/shop/services': {
+      id: '/shop/services'
+      path: '/shop/services'
+      fullPath: '/shop/services'
+      preLoaderRoute: typeof ShopServicesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -223,6 +243,7 @@ const rootRouteChildren: RootRouteChildren = {
   SupportRoute: SupportRoute,
   OrdersOrderIdRoute: OrdersOrderIdRoute,
   ShopOrdersRoute: ShopOrdersRoute,
+  ShopServicesRoute: ShopServicesRoute,
   OrdersIndexRoute: OrdersIndexRoute,
   ShopIndexRoute: ShopIndexRoute,
 }
