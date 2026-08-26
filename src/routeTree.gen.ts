@@ -17,6 +17,10 @@ import { Route as SupportRouteImport } from './routes/support'
 import { Route as OrdersIndexRouteImport } from './routes/orders.index'
 import { Route as OrdersOrderIdRouteImport } from './routes/orders.$orderId'
 import { Route as ShopIndexRouteImport } from './routes/shop.index'
+import { Route as ShopOrdersRouteImport } from './routes/shop.orders'
+import { Route as ShopProfileRouteImport } from './routes/shop.profile'
+import { Route as ShopServicesRouteImport } from './routes/shop.services'
+import { Route as ShopSettingsRouteImport } from './routes/shop.settings'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -58,6 +62,26 @@ const ShopIndexRoute = ShopIndexRouteImport.update({
   path: '/shop/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ShopOrdersRoute = ShopOrdersRouteImport.update({
+  id: '/shop/orders',
+  path: '/shop/orders',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShopProfileRoute = ShopProfileRouteImport.update({
+  id: '/shop/profile',
+  path: '/shop/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShopServicesRoute = ShopServicesRouteImport.update({
+  id: '/shop/services',
+  path: '/shop/services',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShopSettingsRoute = ShopSettingsRouteImport.update({
+  id: '/shop/settings',
+  path: '/shop/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -66,6 +90,10 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/support': typeof SupportRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
+  '/shop/orders': typeof ShopOrdersRoute
+  '/shop/profile': typeof ShopProfileRoute
+  '/shop/services': typeof ShopServicesRoute
+  '/shop/settings': typeof ShopSettingsRoute
   '/orders/': typeof OrdersIndexRoute
   '/shop/': typeof ShopIndexRoute
 }
@@ -76,6 +104,10 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/support': typeof SupportRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
+  '/shop/orders': typeof ShopOrdersRoute
+  '/shop/profile': typeof ShopProfileRoute
+  '/shop/services': typeof ShopServicesRoute
+  '/shop/settings': typeof ShopSettingsRoute
   '/orders': typeof OrdersIndexRoute
   '/shop': typeof ShopIndexRoute
 }
@@ -87,6 +119,10 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/support': typeof SupportRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
+  '/shop/orders': typeof ShopOrdersRoute
+  '/shop/profile': typeof ShopProfileRoute
+  '/shop/services': typeof ShopServicesRoute
+  '/shop/settings': typeof ShopSettingsRoute
   '/orders/': typeof OrdersIndexRoute
   '/shop/': typeof ShopIndexRoute
 }
@@ -99,6 +135,10 @@ export interface FileRouteTypes {
     | '/settings'
     | '/support'
     | '/orders/$orderId'
+    | '/shop/orders'
+    | '/shop/profile'
+    | '/shop/services'
+    | '/shop/settings'
     | '/orders/'
     | '/shop/'
   fileRoutesByTo: FileRoutesByTo
@@ -109,6 +149,10 @@ export interface FileRouteTypes {
     | '/settings'
     | '/support'
     | '/orders/$orderId'
+    | '/shop/orders'
+    | '/shop/profile'
+    | '/shop/services'
+    | '/shop/settings'
     | '/orders'
     | '/shop'
   id:
@@ -119,6 +163,10 @@ export interface FileRouteTypes {
     | '/settings'
     | '/support'
     | '/orders/$orderId'
+    | '/shop/orders'
+    | '/shop/profile'
+    | '/shop/services'
+    | '/shop/settings'
     | '/orders/'
     | '/shop/'
   fileRoutesById: FileRoutesById
@@ -130,6 +178,10 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   SupportRoute: typeof SupportRoute
   OrdersOrderIdRoute: typeof OrdersOrderIdRoute
+  ShopOrdersRoute: typeof ShopOrdersRoute
+  ShopProfileRoute: typeof ShopProfileRoute
+  ShopServicesRoute: typeof ShopServicesRoute
+  ShopSettingsRoute: typeof ShopSettingsRoute
   OrdersIndexRoute: typeof OrdersIndexRoute
   ShopIndexRoute: typeof ShopIndexRoute
 }
@@ -192,6 +244,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShopIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/shop/orders': {
+      id: '/shop/orders'
+      path: '/shop/orders'
+      fullPath: '/shop/orders'
+      preLoaderRoute: typeof ShopOrdersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/shop/profile': {
+      id: '/shop/profile'
+      path: '/shop/profile'
+      fullPath: '/shop/profile'
+      preLoaderRoute: typeof ShopProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/shop/services': {
+      id: '/shop/services'
+      path: '/shop/services'
+      fullPath: '/shop/services'
+      preLoaderRoute: typeof ShopServicesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/shop/settings': {
+      id: '/shop/settings'
+      path: '/shop/settings'
+      fullPath: '/shop/settings'
+      preLoaderRoute: typeof ShopSettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -202,6 +282,10 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   SupportRoute: SupportRoute,
   OrdersOrderIdRoute: OrdersOrderIdRoute,
+  ShopOrdersRoute: ShopOrdersRoute,
+  ShopProfileRoute: ShopProfileRoute,
+  ShopServicesRoute: ShopServicesRoute,
+  ShopSettingsRoute: ShopSettingsRoute,
   OrdersIndexRoute: OrdersIndexRoute,
   ShopIndexRoute: ShopIndexRoute,
 }
