@@ -9,7 +9,7 @@ import { inr } from "@/lib/pricing";
 import { fulfillmentLabel } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/orders")({
+export const Route = createFileRoute("/orders/")({
   head: () => ({
     meta: [
       { title: "My Print Orders — Order My Xerox" },
