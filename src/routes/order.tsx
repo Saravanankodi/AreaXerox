@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Upload,
   FileText,
@@ -22,7 +22,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { newOrderId, useStore } from "@/lib/store";
-import { advanceAmount, calculatePrice, inr, paymentSplit } from "@/lib/pricing";
+import { useAuth } from "@/lib/auth";
+import { advanceAmount, calculateDocumentPrices, calculateOrderPrice, calculatePrice, inr, paymentSplit } from "@/lib/pricing";
+import { detectPageCount } from "@/lib/document-pages";
 import { paymentMethodLabel } from "@/lib/labels";
 import type {
   Address,
@@ -148,16 +150,35 @@ function Choice({
   );
 }
 
-const SAMPLE_FILES = [
-  { name: "Semester-Notes.pdf", pages: 24, sizeMb: 1.8 },
-  { name: "Resume.docx", pages: 2, sizeMb: 0.2 },
-  { name: "Project-Report.pdf", pages: 48, sizeMb: 4.1 },
-  { name: "ID-Proof.jpg", pages: 1, sizeMb: 0.6 },
-];
+function FilePrintOptions({ document, shop, fallback, onChange, onInstructionsChange }: { document: DocumentFile; shop: Shop; fallback: PrintConfig; onChange: (updater: (config: PrintConfig) => PrintConfig) => void; onInstructionsChange: (value: string) => void }) {
+  const config = document.printConfig ?? fallback;
+  const quote = calculatePrice(shop, [document], config, "pickup");
+  const control = "mt-1.5 h-9 w-full rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring";
+  const enabledPapers = shop.paperTypes.filter((paper) => paper.enabled);
+  return <article className="card-surface overflow-hidden">
+    <div className="flex items-start justify-between gap-3 border-b border-border bg-secondary/50 px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{document.name}</p><p className="mt-1 text-xs text-muted-foreground">{document.pages} pages · {document.sizeMb} MB · {document.pageCountDetected ? "Detected automatically" : "Page count confirmed"}</p></div><span className="shrink-0 rounded-full bg-primary-light px-2 py-1 text-xs font-semibold text-primary">{inr(quote.total)}</span></div>
+    <div className="grid gap-3 p-4 sm:grid-cols-2">
+      <SelectControl label="Paper type" value={config.paperTypeId} onChange={(value) => onChange((current) => ({ ...current, paperTypeId: value }))}>{enabledPapers.map((paper) => <option key={paper.id} value={paper.id}>{paper.name}</option>)}</SelectControl>
+      <div><Label className="text-xs font-semibold text-subtle">QUANTITY</Label><div className="mt-1.5 flex h-9 overflow-hidden rounded-md border border-input bg-card"><button type="button" className="w-10 text-base hover:bg-secondary" onClick={() => onChange((current) => ({ ...current, copies: Math.max(1, current.copies - 1) }))}>−</button><span className="flex flex-1 items-center justify-center border-x border-input text-xs font-semibold">{config.copies}</span><button type="button" className="w-10 text-base hover:bg-secondary" onClick={() => onChange((current) => ({ ...current, copies: current.copies + 1 }))}>+</button></div></div>
+      <SelectControl label="Colour" value={config.printType} onChange={(value) => onChange((current) => ({ ...current, printType: value as PrintConfig["printType"] }))}><option value="bw">Black & White</option>{shop.printTypes.color && <option value="color">Colour</option>}</SelectControl>
+      <SelectControl label="Format" value={config.side} onChange={(value) => onChange((current) => ({ ...current, side: value as PrintConfig["side"] }))}><option value="single">Front only</option>{shop.printSides.double && <option value="double">Front & back</option>}</SelectControl>
+      <SelectControl label="Binding" value={config.bindingId ?? "none"} onChange={(value) => onChange((current) => ({ ...current, bindingId: value === "none" ? null : value }))}><option value="none">No binding</option>{shop.binding.filter((option) => option.enabled).map((option) => <option key={option.id} value={option.id}>{option.name} · {inr(option.price)}</option>)}</SelectControl>
+      <SelectControl label="Lamination / extras" value={config.additionalIds[0] ?? "none"} onChange={(value) => onChange((current) => ({ ...current, additionalIds: value === "none" ? [] : [value] }))}><option value="none">No extra service</option>{shop.additional.filter((option) => option.enabled).map((option) => <option key={option.id} value={option.id}>{option.name} · {inr(option.price)} {option.perPage ? "/ page" : "/ set"}</option>)}</SelectControl>
+      <div className="sm:col-span-2"><Label className="text-xs font-semibold text-subtle">SPECIAL INSTRUCTIONS (OPTIONAL)</Label><Input className="mt-1.5 h-9 text-xs" placeholder="e.g. staple at top-left" value={document.instructions ?? ""} onChange={(event) => onInstructionsChange(event.target.value)} /></div>
+    </div>
+    <div className="flex items-center justify-between border-t border-dashed border-border px-4 py-3 text-sm"><span className="text-muted-foreground">{inr(quote.printing / Math.max(1, quote.billablePages))} per printed page · {quote.billablePages} pages</span><span className="font-bold">File total {inr(quote.total)}</span></div>
+  </article>;
+}
+
+function SelectControl({ label, value, onChange, children }: { label: string; value: string; onChange: (value: string) => void; children: ReactNode }) {
+  return <div><Label className="text-xs font-semibold text-subtle">{label.toUpperCase()}</Label><select value={value} onChange={(event) => onChange(event.target.value)} className="mt-1.5 h-9 w-full rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring">{children}</select></div>;
+}
 
 function OrderPage() {
   const navigate = useNavigate();
   const { shops, orders, addresses, profile, placeOrder, saveAddress } = useStore();
+  const { session } = useAuth();
+  const uploadRef = useRef<HTMLInputElement>(null);
 
   const [step, setStep] = useState(0);
   const [docs, setDocs] = useState<DocumentFile[]>([]);
@@ -182,38 +203,77 @@ function OrderPage() {
 
   const shop = useMemo<Shop>(() => shops.find((s) => s.id === shopId) ?? shops[0]!, [shops, shopId]);
   const price = useMemo(
-    () => calculatePrice(shop, docs, config, fulfillment),
+    () => calculateOrderPrice(shop, docs, config, fulfillment),
     [shop, docs, config, fulfillment],
   );
+  const documentPrices = useMemo(() => calculateDocumentPrices(shop, docs, config), [shop, docs, config]);
   const split = paymentSplit(shop, price.total, method);
   const address = addresses.find((a) => a.id === addressId) ?? null;
 
-  const addFile = () => {
-    const sample = SAMPLE_FILES[docs.length % SAMPLE_FILES.length]!;
-    setDocs((d) => [
-      ...d,
-      { id: `doc-${Date.now()}-${d.length}`, name: sample.name, pages: sample.pages, sizeMb: sample.sizeMb },
-    ]);
+  const addFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
+    const incoming = Array.from(files);
+    const tooLarge = incoming.find((file) => file.size > 25 * 1024 * 1024);
+    if (tooLarge) {
+      toast.error(`${tooLarge.name} is larger than the 25 MB limit.`);
+      return;
+    }
+    const scanned = await Promise.all(incoming.map(async (file, index) => {
+      const pageInfo = await detectPageCount(file);
+      return { id: `doc-${Date.now()}-${index}`, name: file.name, pages: pageInfo.pages, pageCountDetected: pageInfo.detected, printConfig: { ...defaultConfig, additionalIds: [] }, sizeMb: Math.max(0.1, Number((file.size / 1024 / 1024).toFixed(1))) };
+    }));
+    setDocs((current) => [...current, ...scanned]);
+    const needsReview = scanned.filter((document) => !document.pageCountDetected).length;
+    toast.success(`${incoming.length} document${incoming.length > 1 ? "s" : ""} added`, { description: needsReview ? `${needsReview} file${needsReview > 1 ? "s need" : " needs"} page-count review.` : "Page counts detected automatically." });
+  };
+
+  const selectShop = (nextShopId: string) => {
+    const nextShop = shops.find((candidate) => candidate.id === nextShopId);
+    if (!nextShop) return;
+    setShopId(nextShopId);
+    setDocs((all) => all.map((document) => {
+      const current = document.printConfig ?? defaultConfig;
+      const paperAvailable = nextShop.paperTypes.some((paper) => paper.id === current.paperTypeId && paper.enabled);
+      return {
+        ...document,
+        printConfig: {
+          ...current,
+          paperTypeId: paperAvailable ? current.paperTypeId : nextShop.paperTypes.find((paper) => paper.enabled)?.id ?? current.paperTypeId,
+          printType: current.printType === "color" && !nextShop.printTypes.color ? "bw" : current.printType,
+          side: current.side === "double" && !nextShop.printSides.double ? "single" : current.side,
+          orientation: current.orientation === "landscape" && !nextShop.orientation.landscape ? "portrait" : current.orientation,
+          bindingId: nextShop.binding.some((option) => option.id === current.bindingId && option.enabled) ? current.bindingId : null,
+          additionalIds: current.additionalIds.filter((id) => nextShop.additional.some((option) => option.id === id && option.enabled)),
+        },
+      };
+    }));
   };
 
   const paper = shop.paperTypes.find((p) => p.id === config.paperTypeId);
 
   const canContinue = () => {
     if (step === 0) return docs.length > 0;
-    if (step === 1) return !!paper?.enabled;
+    if (step === 1) return docs.every((document) => !!(document.printConfig ?? config));
     if (step === 3) return fulfillment === "pickup" || !!address;
     return true;
   };
 
   const stepBlockReason = () => {
     if (step === 0) return "Add at least one document to continue.";
-    if (step === 1) return "Choose an available paper type.";
+    if (step === 1) return "Set the printing preferences for every file.";
     if (step === 3) return "Select a delivery address.";
     return "";
   };
 
   const confirm = () => {
+    if (session?.role !== "customer") {
+      toast.error("Sign in with a customer account before placing an order.");
+      navigate({ to: "/auth/customer/login" });
+      return;
+    }
     const now = new Date().toISOString();
+    const primaryConfig = docs[0]?.printConfig ?? config;
+    const primaryPaper = shop.paperTypes.find((item) => item.id === primaryConfig.paperTypeId);
     const order: Order = {
       id: newOrderId(orders),
       customerName: profile.name,
@@ -221,14 +281,14 @@ function OrderPage() {
       shopId: shop.id,
       shopName: shop.name,
       documents: docs,
-      config,
+      config: primaryConfig,
       configLabels: {
-        paper: paper?.name ?? "A4 Paper",
-        printType: config.printType === "bw" ? "Black & White" : "Colour",
-        side: config.side === "single" ? "Single Side" : "Double Side",
-        orientation: config.orientation === "portrait" ? "Portrait" : "Landscape",
-        binding: shop.binding.find((b) => b.id === config.bindingId)?.name ?? "None",
-        additional: config.additionalIds
+        paper: primaryPaper?.name ?? "A4 Paper",
+        printType: primaryConfig.printType === "bw" ? "Black & White" : "Colour",
+        side: primaryConfig.side === "single" ? "Single Side" : "Double Side",
+        orientation: primaryConfig.orientation === "portrait" ? "Portrait" : "Landscape",
+        binding: shop.binding.find((b) => b.id === primaryConfig.bindingId)?.name ?? "None",
+        additional: primaryConfig.additionalIds
           .map((id) => shop.additional.find((a) => a.id === id)?.name)
           .filter((n): n is string => !!n),
       },
@@ -305,40 +365,51 @@ function OrderPage() {
             {step === 0 && (
               <SectionCard
                 title="Your documents"
-                hint="Add the files you want printed. Page counts are detected automatically."
+                hint="Add files, then enter the exact page count for each one. Your quote updates immediately."
               >
+                <input
+                  ref={uploadRef}
+                  type="file"
+                  className="sr-only"
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  multiple
+                  onChange={(event) => {
+                    void addFiles(event.target.files);
+                    event.currentTarget.value = "";
+                  }}
+                />
                 <button
                   type="button"
-                  onClick={addFile}
+                  onClick={() => uploadRef.current?.click()}
                   className="flex w-full flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border bg-secondary/50 px-6 py-10 text-center transition-colors hover:border-primary hover:bg-primary-light"
                 >
                   <Upload className="h-6 w-6 text-primary" />
-                  <span className="text-sm font-semibold">Click to add a document</span>
-                  <span className="text-xs text-muted-foreground">PDF, DOCX, JPG · up to 25 MB</span>
+                  <span className="text-sm font-semibold">Choose documents</span>
+                  <span className="text-xs text-muted-foreground">PDF, Word, JPG or PNG · up to 25 MB each</span>
                 </button>
 
                 <div className="mt-5 space-y-3">
                   {docs.map((d) => (
                     <div
                       key={d.id}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3"
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3"
                     >
                       <div className="flex min-w-0 items-center gap-3">
                         <FileText className="h-5 w-5 shrink-0 text-primary" />
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium">{d.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {d.pages} pages · {d.sizeMb} MB
-                          </p>
+                          <p className="text-xs text-muted-foreground">{d.sizeMb} MB · {d.pageCountDetected ? "Page count detected" : "Confirm page count"}</p>
                         </div>
                       </div>
-                      <button
-                        onClick={() => setDocs((all) => all.filter((x) => x.id !== d.id))}
-                        className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                        aria-label={`Remove ${d.name}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-end gap-2">
+                        <div className="w-24">
+                          <Label className="text-[11px] font-semibold text-subtle">PAGES</Label>
+                          <Input aria-label={`Pages in ${d.name}`} className="mt-1 h-9" type="number" min={1} value={d.pages} onChange={(event) => setDocs((all) => all.map((item) => item.id === d.id ? { ...item, pages: Math.max(1, Math.floor(Number(event.target.value) || 1)) } : item))} />
+                        </div>
+                        <button onClick={() => setDocs((all) => all.filter((x) => x.id !== d.id))} className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label={`Remove ${d.name}`}>
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                   {docs.length === 0 && (
@@ -349,184 +420,11 @@ function OrderPage() {
             )}
 
             {step === 1 && (
-              <>
-                <SectionCard title="Paper type" hint={`Available at ${shop.name}`}>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {shop.paperTypes.map((p) => (
-                      <Choice
-                        key={p.id}
-                        active={config.paperTypeId === p.id}
-                        disabled={!p.enabled}
-                        onClick={() => setConfig((c) => ({ ...c, paperTypeId: p.id }))}
-                        title={p.name}
-                        meta={
-                          p.enabled
-                            ? `B/W ${inr(p.bwPrice)} · Colour ${inr(p.colorPrice)} per page`
-                            : "Not offered by this shop"
-                        }
-                      />
-                    ))}
-                  </div>
-                </SectionCard>
-
-                <SectionCard title="Print settings">
-                  <div className="space-y-5">
-                    <div>
-                      <Label className="text-xs font-semibold text-subtle">PRINT TYPE</Label>
-                      <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                        <Choice
-                          active={config.printType === "bw"}
-                          disabled={!shop.printTypes.bw}
-                          onClick={() => setConfig((c) => ({ ...c, printType: "bw" }))}
-                          title="Black & White"
-                          meta="Best value for notes and reports"
-                        />
-                        <Choice
-                          active={config.printType === "color"}
-                          disabled={!shop.printTypes.color}
-                          onClick={() => setConfig((c) => ({ ...c, printType: "color" }))}
-                          title="Colour"
-                          meta="For charts, images and presentations"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label className="text-xs font-semibold text-subtle">SIDES</Label>
-                      <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                        <Choice
-                          active={config.side === "single"}
-                          disabled={!shop.printSides.single}
-                          onClick={() => setConfig((c) => ({ ...c, side: "single" }))}
-                          title="Single side"
-                        />
-                        <Choice
-                          active={config.side === "double"}
-                          disabled={!shop.printSides.double}
-                          onClick={() => setConfig((c) => ({ ...c, side: "double" }))}
-                          title="Double side"
-                          meta="Saves paper and cost"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label className="text-xs font-semibold text-subtle">ORIENTATION</Label>
-                      <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                        <Choice
-                          active={config.orientation === "portrait"}
-                          disabled={!shop.orientation.portrait}
-                          onClick={() => setConfig((c) => ({ ...c, orientation: "portrait" }))}
-                          title="Portrait"
-                        />
-                        <Choice
-                          active={config.orientation === "landscape"}
-                          disabled={!shop.orientation.landscape}
-                          onClick={() => setConfig((c) => ({ ...c, orientation: "landscape" }))}
-                          title="Landscape"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <Label htmlFor="copies" className="text-xs font-semibold text-subtle">
-                          COPIES
-                        </Label>
-                        <Input
-                          id="copies"
-                          type="number"
-                          min={1}
-                          value={config.copies}
-                          onChange={(e) =>
-                            setConfig((c) => ({
-                              ...c,
-                              copies: Math.max(1, Number(e.target.value) || 1),
-                            }))
-                          }
-                          className="mt-2"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs font-semibold text-subtle">PAGES</Label>
-                        <div className="mt-2 flex gap-2">
-                          <Button
-                            type="button"
-                            variant={config.pageRangeMode === "all" ? "default" : "outline"}
-                            onClick={() => setConfig((c) => ({ ...c, pageRangeMode: "all" }))}
-                          >
-                            All pages
-                          </Button>
-                          <Button
-                            type="button"
-                            variant={config.pageRangeMode === "custom" ? "default" : "outline"}
-                            onClick={() => setConfig((c) => ({ ...c, pageRangeMode: "custom" }))}
-                          >
-                            Custom range
-                          </Button>
-                        </div>
-                        {config.pageRangeMode === "custom" && (
-                          <Input
-                            placeholder="e.g. 1-5, 8, 11-13"
-                            value={config.pageRange}
-                            onChange={(e) => setConfig((c) => ({ ...c, pageRange: e.target.value }))}
-                            className="mt-2"
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </SectionCard>
-
-                <SectionCard title="Binding & extras" hint="Optional finishing services">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Choice
-                      active={config.bindingId === null}
-                      onClick={() => setConfig((c) => ({ ...c, bindingId: null }))}
-                      title="No binding"
-                    />
-                    {shop.binding.map((b) => (
-                      <Choice
-                        key={b.id}
-                        active={config.bindingId === b.id}
-                        disabled={!b.enabled}
-                        onClick={() => setConfig((c) => ({ ...c, bindingId: b.id }))}
-                        title={b.name}
-                        meta={b.enabled ? `${inr(b.price)} per copy` : "Not available here"}
-                      />
-                    ))}
-                  </div>
-
-                  <div className="mt-5 space-y-3">
-                    {shop.additional.map((a) => (
-                      <label
-                        key={a.id}
-                        className={cn(
-                          "flex items-center gap-3 rounded-lg border border-border px-4 py-3",
-                          !a.enabled && "opacity-40",
-                        )}
-                      >
-                        <Checkbox
-                          checked={config.additionalIds.includes(a.id)}
-                          disabled={!a.enabled}
-                          onCheckedChange={(v) =>
-                            setConfig((c) => ({
-                              ...c,
-                              additionalIds: v
-                                ? [...c.additionalIds, a.id]
-                                : c.additionalIds.filter((x) => x !== a.id),
-                            }))
-                          }
-                        />
-                        <span className="text-sm font-medium">{a.name}</span>
-                        <span className="ml-auto text-sm text-muted-foreground">
-                          {inr(a.price)} {a.perPage ? "per page" : "per copy"}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </SectionCard>
-              </>
+              <SectionCard title="Set printing options for each file" hint="Every file is quoted separately, exactly as it will be printed.">
+                <div className="space-y-4">
+                  {docs.map((document) => <FilePrintOptions key={document.id} document={document} shop={shop} fallback={config} onChange={(updater) => setDocs((all) => all.map((item) => item.id === document.id ? { ...item, printConfig: updater(item.printConfig ?? defaultConfig) } : item))} onInstructionsChange={(instructions) => setDocs((all) => all.map((item) => item.id === document.id ? { ...item, instructions } : item))} />)}
+                </div>
+              </SectionCard>
             )}
 
             {step === 2 && (
@@ -542,7 +440,7 @@ function OrderPage() {
                       <button
                         key={s.id}
                         type="button"
-                        onClick={() => setShopId(s.id)}
+                        onClick={() => selectShop(s.id)}
                         className={cn(
                           "w-full rounded-lg border p-4 text-left transition-colors",
                           active
@@ -772,32 +670,21 @@ function OrderPage() {
 
             {step === 5 && (
               <SectionCard title="Review your order" hint="Check everything before confirming.">
+                <div className="mb-5 rounded-lg border border-border bg-secondary/50 p-4">
+                  <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold">File-by-file quote</h3><span className="text-xs text-muted-foreground">Before delivery</span></div>
+                  <div className="mt-3 divide-y divide-border">
+                    {docs.map((document, index) => {
+                      const fileConfig = document.printConfig ?? config;
+                      const filePaper = shop.paperTypes.find((item) => item.id === fileConfig.paperTypeId);
+                      return <div key={document.id} className="flex items-center justify-between gap-4 py-2.5 text-sm"><div className="min-w-0"><p className="truncate font-medium">{document.name}</p><p className="mt-0.5 text-xs text-muted-foreground">{documentPrices[index]?.billablePages ?? 0} printed pages · {fileConfig.copies} copy(ies) · {fileConfig.printType === "bw" ? "B/W" : "Colour"} · {fileConfig.side === "double" ? "Front & back" : "Front only"}</p><p className="mt-0.5 text-xs text-muted-foreground">{filePaper?.name ?? "Paper"} · {fileConfig.bindingId ? shop.binding.find((item) => item.id === fileConfig.bindingId)?.name : "No binding"}{fileConfig.additionalIds.length ? ` · ${fileConfig.additionalIds.map((id) => shop.additional.find((item) => item.id === id)?.name).filter(Boolean).join(", ")}` : ""}</p>{document.instructions && <p className="mt-1 text-xs text-primary">Note: {document.instructions}</p>}</div><span className="shrink-0 font-semibold">{inr(documentPrices[index]?.total ?? 0)}</span></div>;
+                    })}
+                  </div>
+                </div>
                 <dl className="divide-y divide-border text-sm">
                   {(
                     [
                       ["Shop", shop.name],
                       ["Documents", `${docs.length} file(s) · ${docs.reduce((s, d) => s + d.pages, 0)} pages`],
-                      ["Paper", paper?.name ?? "—"],
-                      ["Print type", config.printType === "bw" ? "Black & White" : "Colour"],
-                      ["Sides", config.side === "single" ? "Single side" : "Double side"],
-                      ["Orientation", config.orientation],
-                      ["Copies", String(config.copies)],
-                      [
-                        "Pages",
-                        config.pageRangeMode === "all" ? "All pages" : config.pageRange || "All pages",
-                      ],
-                      [
-                        "Binding",
-                        shop.binding.find((b) => b.id === config.bindingId)?.name ?? "None",
-                      ],
-                      [
-                        "Extras",
-                        config.additionalIds.length
-                          ? config.additionalIds
-                              .map((id) => shop.additional.find((a) => a.id === id)?.name)
-                              .join(", ")
-                          : "None",
-                      ],
                       ["Fulfilment", fulfillment === "pickup" ? "Pickup at shop" : "Home delivery"],
                       [
                         "Address",
@@ -851,14 +738,12 @@ function OrderPage() {
               <h2 className="text-base font-semibold">Price summary</h2>
               <p className="mt-1 text-xs text-muted-foreground">{shop.name}</p>
               <dl className="mt-4 space-y-2 text-sm">
-                <Row label={`Printing (${price.billablePages} pages)`} value={inr(price.printing)} />
+                <Row label={`Printing (${price.billablePages} printed pages)`} value={inr(price.printing)} />
                 <Row label="Binding" value={inr(price.binding)} />
                 <Row label="Extra services" value={inr(price.services)} />
                 <Row label="Delivery" value={inr(price.delivery)} />
-                {price.discount > 0 && (
-                  <Row label="Discount" value={`− ${inr(price.discount)}`} accent />
-                )}
               </dl>
+              {docs.length > 0 && <div className="mt-4 border-t border-border pt-3"><p className="text-xs font-semibold text-subtle">FILE SUBTOTALS</p><div className="mt-2 space-y-1.5">{docs.map((document, index) => <div key={document.id} className="flex items-center justify-between gap-3 text-xs"><span className="truncate text-muted-foreground">{document.name} · {documentPrices[index]?.billablePages ?? 0} pages</span><span className="shrink-0 font-medium">{inr(documentPrices[index]?.total ?? 0)}</span></div>)}</div></div>}
               <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
                 <span className="text-sm font-semibold">Total</span>
                 <span className="text-xl font-bold">{inr(price.total)}</span>
@@ -876,6 +761,11 @@ function OrderPage() {
               {docs.length === 0 && (
                 <p className="mt-4 text-xs text-muted-foreground">
                   Add documents to see live pricing.
+                </p>
+              )}
+              {docs.length > 0 && (
+                <p className="mt-4 border-t border-border pt-3 text-xs text-muted-foreground">
+                  Quote uses {price.billablePages} printed pages, including copies. Binding and per-copy extras apply to each document set.
                 </p>
               )}
             </div>

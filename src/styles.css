@@ -1,4 +1,4 @@
-@import "tailwindcss" source(none);
+@import "tailwindcss" ;
 @source "../src";
 @import "tw-animate-css";
 
@@ -105,6 +105,43 @@
   --sidebar-ring: oklch(0.5461 0.2152 262.88);
 }
 
+:root.dark {
+  color-scheme: dark;
+  --background: oklch(0.16 0.02 258);
+  --foreground: oklch(0.95 0.01 255);
+  --card: oklch(0.205 0.025 258);
+  --card-foreground: oklch(0.95 0.01 255);
+  --popover: oklch(0.205 0.025 258);
+  --popover-foreground: oklch(0.95 0.01 255);
+  --primary: oklch(0.7 0.16 260);
+  --primary-foreground: oklch(0.16 0.02 258);
+  --primary-hover: oklch(0.77 0.13 260);
+  --primary-light: oklch(0.25 0.055 260);
+  --secondary: oklch(0.255 0.025 258);
+  --secondary-foreground: oklch(0.95 0.01 255);
+  --muted: oklch(0.255 0.025 258);
+  --muted-foreground: oklch(0.73 0.03 255);
+  --subtle: oklch(0.63 0.03 255);
+  --accent: oklch(0.25 0.055 260);
+  --accent-foreground: oklch(0.78 0.12 260);
+  --destructive: oklch(0.68 0.19 25);
+  --success: oklch(0.72 0.13 162);
+  --success-light: oklch(0.25 0.055 162);
+  --warning: oklch(0.82 0.14 80);
+  --warning-light: oklch(0.27 0.055 80);
+  --border: oklch(0.32 0.025 258);
+  --input: oklch(0.36 0.025 258);
+  --ring: oklch(0.7 0.16 260);
+  --sidebar: oklch(0.19 0.023 258);
+  --sidebar-foreground: oklch(0.95 0.01 255);
+  --sidebar-primary: oklch(0.7 0.16 260);
+  --sidebar-primary-foreground: oklch(0.16 0.02 258);
+  --sidebar-accent: oklch(0.25 0.055 260);
+  --sidebar-accent-foreground: oklch(0.78 0.12 260);
+  --sidebar-border: oklch(0.32 0.025 258);
+  --sidebar-ring: oklch(0.7 0.16 260);
+}
+
 @layer base {
   * {
     border-color: var(--color-border);
@@ -179,4 +216,43 @@
   @media (min-width: 768px) {
     font-size: 32px;
   }
+}
+
+@keyframes home-fade-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes home-float {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50% { transform: translateY(-10px) rotate(1deg); }
+}
+
+@keyframes home-orbit {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(20px, -14px, 0) scale(1.08); }
+}
+
+.home-hero {
+  background:
+    linear-gradient(135deg, var(--primary-light) 0%, var(--background) 48%, var(--card) 100%),
+    radial-gradient(circle at 1px 1px, color-mix(in oklch, var(--primary) 11%, transparent) 1px, transparent 0);
+  background-size: auto, 22px 22px;
+}
+
+.home-orb { position: absolute; border-radius: 999px; filter: blur(3px); pointer-events: none; }
+.home-orb-one { width: 320px; height: 320px; right: -120px; top: -130px; background: color-mix(in oklch, var(--primary) 20%, transparent); animation: home-orbit 10s ease-in-out infinite; }
+.home-orb-two { width: 180px; height: 180px; left: 42%; bottom: -100px; background: color-mix(in oklch, var(--primary) 15%, transparent); animation: home-orbit 12s ease-in-out infinite reverse; }
+.home-enter { animation: home-fade-up 600ms ease-out both; }
+.home-enter-delayed { animation: home-fade-up 600ms 120ms ease-out both; }
+.home-dashboard { box-shadow: 0 24px 60px -30px color-mix(in oklch, var(--primary) 40%, transparent); animation: home-float 6s ease-in-out infinite; }
+.home-proof-grid { box-shadow: 0 16px 42px -32px color-mix(in oklch, var(--foreground) 35%, transparent); }
+
+@media (max-width: 639px) {
+  .home-proof-grid > div { border-right: 0; border-bottom: 1px solid var(--border); }
+  .home-proof-grid > div:last-child { border-bottom: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-orb, .home-enter, .home-enter-delayed, .home-dashboard { animation: none; }
 }

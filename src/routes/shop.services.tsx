@@ -177,7 +177,7 @@ function ShopServices() {
                   <div>
                     <p className="text-sm font-medium">{a.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {a.perPage ? "Charged per page" : "Charged per copy"} · {inr(a.price)}
+                      {a.perPage ? "Charged per page" : "Charged per document set"} · {inr(a.price)}
                     </p>
                   </div>
                   <Input

@@ -1,8 +1,10 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, ClipboardList, Printer, Store, Settings, ArrowLeft } from "lucide-react";
+import { LayoutDashboard, ClipboardList, Printer, Store, Settings, ArrowLeft, LogOut } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
+import { useAuth } from "@/lib/auth";
+import { ThemeSelector } from "@/components/ThemeSelector";
 
 const nav = [
   { to: "/shop", label: "Dashboard", icon: LayoutDashboard, exact: true },
@@ -25,6 +27,11 @@ export function ShopShell({
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { activeShop } = useStore();
+  const { session, signOut } = useAuth();
+
+  if (session?.role !== "shopkeeper") {
+    return <div className="flex min-h-screen items-center justify-center p-5"><div className="card-surface max-w-md p-7 text-center"><h1 className="text-xl font-bold">Shopkeeper sign-in required</h1><p className="mt-2 text-sm text-muted-foreground">Use your shop account to access orders, services and settings.</p><Link to="/auth/shop/login" className="mt-5 inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Sign in to shop portal</Link></div></div>;
+  }
 
   return (
     <div className="min-h-screen bg-background lg:flex">
@@ -37,6 +44,7 @@ export function ShopShell({
             <p className="truncate text-sm font-bold">{activeShop.name}</p>
             <p className="text-xs text-muted-foreground">Shopkeeper console</p>
           </div>
+          <span className="ml-auto"><ThemeSelector compact /></span>
         </div>
         <nav className="flex gap-1 overflow-x-auto px-3 pb-3 lg:flex-col lg:overflow-visible">
           {nav.map((item) => {
@@ -66,6 +74,7 @@ export function ShopShell({
           >
             <ArrowLeft className="h-4 w-4" /> Customer app
           </Link>
+          <button onClick={signOut} className="mt-1 flex w-full items-center gap-2.5 rounded-md px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"><LogOut className="h-4 w-4" /> Sign out</button>
         </div>
       </aside>
 

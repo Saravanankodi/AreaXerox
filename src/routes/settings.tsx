@@ -54,7 +54,7 @@ function SettingsPage() {
                   <p className="mt-1 text-sm text-muted-foreground">{p.copy}</p>
                 </div>
                 <Switch
-                  checked={on[p.id]}
+                  checked={on[p.id] ?? false}
                   onCheckedChange={(v) => {
                     setOn((s) => ({ ...s, [p.id]: v }));
                     toast.success(`${p.label} ${v ? "enabled" : "disabled"}`);

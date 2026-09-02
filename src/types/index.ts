@@ -83,6 +83,9 @@ export interface DocumentFile {
   name: string;
   pages: number;
   sizeMb: number;
+  pageCountDetected?: boolean;
+  printConfig?: PrintConfig;
+  instructions?: string;
 }
 
 export interface Address {

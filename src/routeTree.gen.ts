@@ -21,6 +21,10 @@ import { Route as ShopOrdersRouteImport } from './routes/shop.orders'
 import { Route as ShopProfileRouteImport } from './routes/shop.profile'
 import { Route as ShopServicesRouteImport } from './routes/shop.services'
 import { Route as ShopSettingsRouteImport } from './routes/shop.settings'
+import { Route as AuthCustomerCreateAccountRouteImport } from './routes/auth.customer.create-account'
+import { Route as AuthCustomerLoginRouteImport } from './routes/auth.customer.login'
+import { Route as AuthShopCreateAccountRouteImport } from './routes/auth.shop.create-account'
+import { Route as AuthShopLoginRouteImport } from './routes/auth.shop.login'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -82,6 +86,27 @@ const ShopSettingsRoute = ShopSettingsRouteImport.update({
   path: '/shop/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthCustomerCreateAccountRoute =
+  AuthCustomerCreateAccountRouteImport.update({
+    id: '/auth/customer/create-account',
+    path: '/auth/customer/create-account',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const AuthCustomerLoginRoute = AuthCustomerLoginRouteImport.update({
+  id: '/auth/customer/login',
+  path: '/auth/customer/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthShopCreateAccountRoute = AuthShopCreateAccountRouteImport.update({
+  id: '/auth/shop/create-account',
+  path: '/auth/shop/create-account',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthShopLoginRoute = AuthShopLoginRouteImport.update({
+  id: '/auth/shop/login',
+  path: '/auth/shop/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -96,6 +121,10 @@ export interface FileRoutesByFullPath {
   '/shop/settings': typeof ShopSettingsRoute
   '/orders/': typeof OrdersIndexRoute
   '/shop/': typeof ShopIndexRoute
+  '/auth/customer/create-account': typeof AuthCustomerCreateAccountRoute
+  '/auth/customer/login': typeof AuthCustomerLoginRoute
+  '/auth/shop/create-account': typeof AuthShopCreateAccountRoute
+  '/auth/shop/login': typeof AuthShopLoginRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -110,6 +139,10 @@ export interface FileRoutesByTo {
   '/shop/settings': typeof ShopSettingsRoute
   '/orders': typeof OrdersIndexRoute
   '/shop': typeof ShopIndexRoute
+  '/auth/customer/create-account': typeof AuthCustomerCreateAccountRoute
+  '/auth/customer/login': typeof AuthCustomerLoginRoute
+  '/auth/shop/create-account': typeof AuthShopCreateAccountRoute
+  '/auth/shop/login': typeof AuthShopLoginRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -125,6 +158,10 @@ export interface FileRoutesById {
   '/shop/settings': typeof ShopSettingsRoute
   '/orders/': typeof OrdersIndexRoute
   '/shop/': typeof ShopIndexRoute
+  '/auth/customer/create-account': typeof AuthCustomerCreateAccountRoute
+  '/auth/customer/login': typeof AuthCustomerLoginRoute
+  '/auth/shop/create-account': typeof AuthShopCreateAccountRoute
+  '/auth/shop/login': typeof AuthShopLoginRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -141,6 +178,10 @@ export interface FileRouteTypes {
     | '/shop/settings'
     | '/orders/'
     | '/shop/'
+    | '/auth/customer/create-account'
+    | '/auth/customer/login'
+    | '/auth/shop/create-account'
+    | '/auth/shop/login'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -155,6 +196,10 @@ export interface FileRouteTypes {
     | '/shop/settings'
     | '/orders'
     | '/shop'
+    | '/auth/customer/create-account'
+    | '/auth/customer/login'
+    | '/auth/shop/create-account'
+    | '/auth/shop/login'
   id:
     | '__root__'
     | '/'
@@ -169,6 +214,10 @@ export interface FileRouteTypes {
     | '/shop/settings'
     | '/orders/'
     | '/shop/'
+    | '/auth/customer/create-account'
+    | '/auth/customer/login'
+    | '/auth/shop/create-account'
+    | '/auth/shop/login'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -184,6 +233,10 @@ export interface RootRouteChildren {
   ShopSettingsRoute: typeof ShopSettingsRoute
   OrdersIndexRoute: typeof OrdersIndexRoute
   ShopIndexRoute: typeof ShopIndexRoute
+  AuthCustomerCreateAccountRoute: typeof AuthCustomerCreateAccountRoute
+  AuthCustomerLoginRoute: typeof AuthCustomerLoginRoute
+  AuthShopCreateAccountRoute: typeof AuthShopCreateAccountRoute
+  AuthShopLoginRoute: typeof AuthShopLoginRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -272,6 +325,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShopSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth/customer/create-account': {
+      id: '/auth/customer/create-account'
+      path: '/auth/customer/create-account'
+      fullPath: '/auth/customer/create-account'
+      preLoaderRoute: typeof AuthCustomerCreateAccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/customer/login': {
+      id: '/auth/customer/login'
+      path: '/auth/customer/login'
+      fullPath: '/auth/customer/login'
+      preLoaderRoute: typeof AuthCustomerLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/shop/create-account': {
+      id: '/auth/shop/create-account'
+      path: '/auth/shop/create-account'
+      fullPath: '/auth/shop/create-account'
+      preLoaderRoute: typeof AuthShopCreateAccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/shop/login': {
+      id: '/auth/shop/login'
+      path: '/auth/shop/login'
+      fullPath: '/auth/shop/login'
+      preLoaderRoute: typeof AuthShopLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -288,6 +369,10 @@ const rootRouteChildren: RootRouteChildren = {
   ShopSettingsRoute: ShopSettingsRoute,
   OrdersIndexRoute: OrdersIndexRoute,
   ShopIndexRoute: ShopIndexRoute,
+  AuthCustomerCreateAccountRoute: AuthCustomerCreateAccountRoute,
+  AuthCustomerLoginRoute: AuthCustomerLoginRoute,
+  AuthShopCreateAccountRoute: AuthShopCreateAccountRoute,
+  AuthShopLoginRoute: AuthShopLoginRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

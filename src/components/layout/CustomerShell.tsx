@@ -1,8 +1,10 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Printer, Home, Package, User, LifeBuoy, Store, Menu, X } from "lucide-react";
+import { Printer, Home, Package, User, LifeBuoy, Store, Menu, X, LogOut } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/auth";
+import { ThemeSelector } from "@/components/ThemeSelector";
 
 const nav = [
   { to: "/", label: "Home", icon: Home },
@@ -15,6 +17,7 @@ const nav = [
 export function CustomerShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
+  const { session, signOut } = useAuth();
 
   const isActive = (to: string) => (to === "/" ? pathname === "/" : pathname.startsWith(to));
 
@@ -47,14 +50,17 @@ export function CustomerShell({ children }: { children: ReactNode }) {
           </nav>
 
           <div className="flex items-center gap-2">
-            <Link to="/shop" className="hidden md:block">
+            <ThemeSelector compact />
+            <Link to={session?.role === "shopkeeper" ? "/shop" : "/auth/shop/login"} className="hidden md:block">
               <Button variant="outline" size="sm">
                 <Store className="h-4 w-4" /> Shopkeeper
               </Button>
             </Link>
-            <Link to="/order" className="hidden sm:block">
-              <Button size="sm">Start Printing</Button>
-            </Link>
+            {session?.role === "customer" ? (
+              <button onClick={signOut} className="hidden items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground hover:bg-secondary sm:inline-flex"><LogOut className="h-4 w-4" /> Sign out</button>
+            ) : (
+              <Link to="/auth/customer/login" className="hidden sm:block"><Button size="sm">Sign in</Button></Link>
+            )}
             <button
               className="rounded-md p-2 text-muted-foreground md:hidden"
               onClick={() => setOpen((v) => !v)}
@@ -67,7 +73,8 @@ export function CustomerShell({ children }: { children: ReactNode }) {
         {open && (
           <div className="border-t border-border bg-card md:hidden">
             <div className="container-page flex flex-col py-2">
-              {[...nav, { to: "/shop", label: "Shopkeeper View", icon: Store }].map((item) => (
+              <div className="flex items-center justify-between px-2 py-2 text-sm font-medium text-muted-foreground"><span>Appearance</span><ThemeSelector /></div>
+              {[...nav, { to: session?.role === "shopkeeper" ? "/shop" : "/auth/shop/login", label: "Shopkeeper View", icon: Store }].map((item) => (
                 <Link
                   key={item.to}
                   to={item.to}
