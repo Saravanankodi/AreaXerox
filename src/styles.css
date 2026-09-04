@@ -1,4 +1,4 @@
-@import "tailwindcss" ;
+@import "tailwindcss";
 @source "../src";
 @import "tw-animate-css";
 
@@ -219,40 +219,118 @@
 }
 
 @keyframes home-fade-up {
-  from { opacity: 0; transform: translateY(18px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes home-float {
-  0%, 100% { transform: translateY(0) rotate(-1deg); }
-  50% { transform: translateY(-10px) rotate(1deg); }
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1deg);
+  }
+  50% {
+    transform: translateY(-10px) rotate(1deg);
+  }
 }
 
 @keyframes home-orbit {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(20px, -14px, 0) scale(1.08); }
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(20px, -14px, 0) scale(1.08);
+  }
+}
+
+@keyframes home-upload-progress {
+  from {
+    width: 8%;
+  }
+  to {
+    width: 92%;
+  }
 }
 
 .home-hero {
   background:
     linear-gradient(135deg, var(--primary-light) 0%, var(--background) 48%, var(--card) 100%),
-    radial-gradient(circle at 1px 1px, color-mix(in oklch, var(--primary) 11%, transparent) 1px, transparent 0);
-  background-size: auto, 22px 22px;
+    radial-gradient(
+      circle at 1px 1px,
+      color-mix(in oklch, var(--primary) 11%, transparent) 1px,
+      transparent 0
+    );
+  background-size:
+    auto,
+    22px 22px;
 }
 
-.home-orb { position: absolute; border-radius: 999px; filter: blur(3px); pointer-events: none; }
-.home-orb-one { width: 320px; height: 320px; right: -120px; top: -130px; background: color-mix(in oklch, var(--primary) 20%, transparent); animation: home-orbit 10s ease-in-out infinite; }
-.home-orb-two { width: 180px; height: 180px; left: 42%; bottom: -100px; background: color-mix(in oklch, var(--primary) 15%, transparent); animation: home-orbit 12s ease-in-out infinite reverse; }
-.home-enter { animation: home-fade-up 600ms ease-out both; }
-.home-enter-delayed { animation: home-fade-up 600ms 120ms ease-out both; }
-.home-dashboard { box-shadow: 0 24px 60px -30px color-mix(in oklch, var(--primary) 40%, transparent); animation: home-float 6s ease-in-out infinite; }
-.home-proof-grid { box-shadow: 0 16px 42px -32px color-mix(in oklch, var(--foreground) 35%, transparent); }
+.home-orb {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(3px);
+  pointer-events: none;
+}
+.home-orb-one {
+  width: 320px;
+  height: 320px;
+  right: -120px;
+  top: -130px;
+  background: color-mix(in oklch, var(--primary) 20%, transparent);
+  animation: home-orbit 10s ease-in-out infinite;
+}
+.home-orb-two {
+  width: 180px;
+  height: 180px;
+  left: 42%;
+  bottom: -100px;
+  background: color-mix(in oklch, var(--primary) 15%, transparent);
+  animation: home-orbit 12s ease-in-out infinite reverse;
+}
+.home-enter {
+  animation: home-fade-up 600ms ease-out both;
+}
+.home-enter-delayed {
+  animation: home-fade-up 600ms 120ms ease-out both;
+}
+.home-dashboard {
+  box-shadow: 0 24px 60px -30px color-mix(in oklch, var(--primary) 40%, transparent);
+  animation: home-float 6s ease-in-out infinite;
+}
+.home-proof-grid {
+  box-shadow: 0 16px 42px -32px color-mix(in oklch, var(--foreground) 35%, transparent);
+}
+.home-upload-card {
+  box-shadow: 0 24px 60px -30px color-mix(in oklch, var(--primary) 40%, transparent);
+  animation: home-float 6s ease-in-out infinite;
+}
+.home-upload-progress {
+  animation: home-upload-progress 700ms ease-out forwards;
+}
 
 @media (max-width: 639px) {
-  .home-proof-grid > div { border-right: 0; border-bottom: 1px solid var(--border); }
-  .home-proof-grid > div:last-child { border-bottom: 0; }
+  .home-proof-grid > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .home-proof-grid > div:last-child {
+    border-bottom: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .home-orb, .home-enter, .home-enter-delayed, .home-dashboard { animation: none; }
+  .home-orb,
+  .home-enter,
+  .home-enter-delayed,
+  .home-dashboard,
+  .home-upload-card,
+  .home-upload-progress {
+    animation: none;
+  }
 }

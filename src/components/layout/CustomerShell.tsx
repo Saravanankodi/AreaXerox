@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Printer, Home, Package, User, LifeBuoy, Store, Menu, X, LogOut } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { Printer, Home, Package, User, LifeBuoy, Store, LogOut } from "lucide-react";
+import { type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
@@ -14,9 +14,14 @@ const nav = [
   { to: "/profile", label: "Profile", icon: User },
 ] as const;
 
-export function CustomerShell({ children }: { children: ReactNode }) {
+export function CustomerShell({
+  children,
+  hideFooter = false,
+}: {
+  children: ReactNode;
+  hideFooter?: boolean;
+}) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const [open, setOpen] = useState(false);
   const { session, signOut } = useAuth();
 
   const isActive = (to: string) => (to === "/" ? pathname === "/" : pathname.startsWith(to));
@@ -51,62 +56,49 @@ export function CustomerShell({ children }: { children: ReactNode }) {
 
           <div className="flex items-center gap-2">
             <ThemeSelector compact />
-            <Link to={session?.role === "shopkeeper" ? "/shop" : "/auth/shop/login"} className="hidden md:block">
+            <Link
+              to={session?.role === "shopkeeper" ? "/shop" : "/auth/shop/login"}
+              className="hidden md:block"
+            >
               <Button variant="outline" size="sm">
                 <Store className="h-4 w-4" /> Shopkeeper
               </Button>
             </Link>
             {session?.role === "customer" ? (
-              <button onClick={signOut} className="hidden items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground hover:bg-secondary sm:inline-flex"><LogOut className="h-4 w-4" /> Sign out</button>
+              <button
+                onClick={signOut}
+                className="hidden items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground hover:bg-secondary sm:inline-flex"
+              >
+                <LogOut className="h-4 w-4" /> Sign out
+              </button>
             ) : (
-              <Link to="/auth/customer/login" className="hidden sm:block"><Button size="sm">Sign in</Button></Link>
+              <Link to="/auth/customer/login" className="hidden sm:block">
+                <Button size="sm">Sign in</Button>
+              </Link>
             )}
-            <button
-              className="rounded-md p-2 text-muted-foreground md:hidden"
-              onClick={() => setOpen((v) => !v)}
-              aria-label="Toggle menu"
-            >
-              {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </button>
           </div>
         </div>
-        {open && (
-          <div className="border-t border-border bg-card md:hidden">
-            <div className="container-page flex flex-col py-2">
-              <div className="flex items-center justify-between px-2 py-2 text-sm font-medium text-muted-foreground"><span>Appearance</span><ThemeSelector /></div>
-              {[...nav, { to: session?.role === "shopkeeper" ? "/shop" : "/auth/shop/login", label: "Shopkeeper View", icon: Store }].map((item) => (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  onClick={() => setOpen(false)}
-                  className="flex items-center gap-3 rounded-md px-2 py-3 text-sm font-medium text-foreground"
-                >
-                  <item.icon className="h-4 w-4 text-muted-foreground" />
-                  {item.label}
-                </Link>
-              ))}
-            </div>
-          </div>
-        )}
       </header>
 
       <main className="flex-1 pb-20 md:pb-0">{children}</main>
 
-      <footer className="mt-16 hidden border-t border-border bg-card md:block">
-        <div className="container-page flex flex-col gap-2 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-          <p>© {new Date().getFullYear()} Order My Xerox · Print smarter, skip the queue.</p>
-          <div className="flex gap-4">
-            <Link to="/support" className="hover:text-foreground">
-              Support
-            </Link>
-            <Link to="/settings" className="hover:text-foreground">
-              Settings
-            </Link>
+      {!hideFooter && (
+        <footer className="mt-16 hidden border-t border-border bg-card md:block">
+          <div className="container-page flex flex-col gap-2 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <p>© {new Date().getFullYear()} Order My Xerox · Print smarter, skip the queue.</p>
+            <div className="flex gap-4">
+              <Link to="/support" className="hover:text-foreground">
+                Support
+              </Link>
+              <Link to="/settings" className="hover:text-foreground">
+                Settings
+              </Link>
+            </div>
           </div>
-        </div>
-      </footer>
+        </footer>
+      )}
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card md:hidden">
+      <nav className="fixed inset-x-0 bottom-0  z-40 border-t border-border bg-card md:hidden">
         <div className="grid grid-cols-5">
           {nav.map((item) => (
             <Link

@@ -79,6 +79,22 @@ function ShopProfile() {
                 />
               </div>
             </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div><Label htmlFor="opening">Opening time</Label><Input id="opening" type="time" className="mt-1.5" value={shop.openingTime ?? ""} onChange={(e) => set("openingTime", e.target.value)} /></div>
+              <div><Label htmlFor="closing">Closing time</Label><Input id="closing" type="time" className="mt-1.5" value={shop.closingTime ?? ""} onChange={(e) => set("closingTime", e.target.value)} /></div>
+            </div>
+            <div>
+              <Label htmlFor="whatsapp">Shop WhatsApp number</Label>
+              <Input
+                id="whatsapp"
+                className="mt-1.5"
+                inputMode="tel"
+                placeholder="e.g. +91 98765 43210"
+                value={shop.whatsappNumber ?? ""}
+                onChange={(e) => set("whatsappNumber", e.target.value)}
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">Customers can use this number to open WhatsApp after selecting their files.</p>
+            </div>
             <div>
               <Label htmlFor="address">Shop address</Label>
               <Textarea
@@ -216,40 +232,7 @@ function ShopProfile() {
                 </div>
               ))}
             </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="advType">Advance type</Label>
-                <select
-                  id="advType"
-                  className="mt-1.5 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  value={shop.payments.advanceType}
-                  onChange={(e) =>
-                    set("payments", {
-                      ...shop.payments,
-                      advanceType: e.target.value as "fixed" | "percent",
-                    })
-                  }
-                >
-                  <option value="fixed">Fixed amount (₹)</option>
-                  <option value="percent">Percentage (%)</option>
-                </select>
-              </div>
-              <div>
-                <Label htmlFor="advVal">Advance value</Label>
-                <Input
-                  id="advVal"
-                  type="number"
-                  className="mt-1.5"
-                  value={shop.payments.advanceValue}
-                  onChange={(e) =>
-                    set("payments", {
-                      ...shop.payments,
-                      advanceValue: Number(e.target.value) || 0,
-                    })
-                  }
-                />
-              </div>
-            </div>
+            <div className="mt-4 max-w-xs"><Label htmlFor="advancePercent">Advance payment (%)</Label><Input id="advancePercent" type="number" min={0} max={100} className="mt-1.5" value={shop.payments.advancePercent} onChange={(e) => set("payments", { ...shop.payments, advancePercent: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })} /><p className="mt-1.5 text-xs text-muted-foreground">Customers pay this percentage upfront when they choose Pay Advance.</p></div>
           </div>
         </div>
       </div>

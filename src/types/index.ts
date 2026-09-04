@@ -52,8 +52,7 @@ export interface PaymentSettings {
   advance: boolean;
   cashPickup: boolean;
   cashDelivery: boolean;
-  advanceType: "fixed" | "percent";
-  advanceValue: number;
+  advancePercent: number;
 }
 
 export interface Shop {
@@ -61,9 +60,12 @@ export interface Shop {
   name: string;
   ownerName: string;
   phone: string;
+  whatsappNumber?: string;
   email: string;
   address: string;
   hours: string;
+  openingTime?: string;
+  closingTime?: string;
   rating: number;
   distanceKm: number;
   prepMinutes: number;
@@ -107,6 +109,8 @@ export interface PrintConfig {
   copies: number;
   pageRangeMode: "all" | "custom";
   pageRange: string;
+  /** Number of document pages placed on each physical sheet. */
+  pageLayout?: 1 | 2 | 4;
   orientation: Orientation;
   bindingId: string | null;
   additionalIds: string[];

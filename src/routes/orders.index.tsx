@@ -65,14 +65,9 @@ function OrdersPage() {
           ))}
         </div>
 
-        <div className="mt-6 space-y-4 pb-16">
+        <div className="mt-6 grid grid-cols-1 gap-4 pb-16 sm:grid-cols-2 lg:grid-cols-3">
           {list.map((o) => (
-            <Link
-              key={o.id}
-              to="/orders/$orderId"
-              params={{ orderId: o.id }}
-              className="card-surface hover-lift block p-5"
-            >
+            <article key={o.id} className="card-surface flex h-full min-w-0 flex-col p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-bold">{o.id}</p>
@@ -95,13 +90,18 @@ function OrdersPage() {
                 <span>{new Date(o.createdAt).toLocaleString("en-IN")}</span>
               </div>
 
-              <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
                 <span className="text-sm text-muted-foreground">
                   {o.balance > 0 ? `Balance ${inr(o.balance)} due` : "Fully paid"}
                 </span>
-                <span className="text-base font-bold">{inr(o.price.total)}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-base font-bold">{inr(o.price.total)}</span>
+                  <Link to="/orders/$orderId" params={{ orderId: o.id }}>
+                    <Button size="sm">Track Order</Button>
+                  </Link>
+                </div>
               </div>
-            </Link>
+            </article>
           ))}
 
           {list.length === 0 && (

@@ -22,10 +22,10 @@ export const paymentStatusLabel: Record<PaymentStatus, string> = {
 };
 
 export const paymentMethodLabel: Record<PaymentMethod, string> = {
-  full: "Paid in Full",
+  full: "Paid Full",
   advance: "Pay Advance",
-  cash_pickup: "Cash at Pickup",
-  cash_delivery: "Cash on Delivery",
+  cash_pickup: "Pickup Pay",
+  cash_delivery: "Delivery Pay",
 };
 
 export function statusFlow(fulfillment: Fulfillment): OrderStatus[] {

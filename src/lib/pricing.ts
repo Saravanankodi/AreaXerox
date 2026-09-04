@@ -100,8 +100,8 @@ export function calculatePrice(shop: Shop | null, docs: DocumentFile[], config: 
 
 export function advanceAmount(shop: Shop | null, total: number) {
   if (!shop || !shop.payments.advance) return 0;
-  const { advanceType, advanceValue } = shop.payments;
-  return Math.min(money(total), money(advanceType === "fixed" ? advanceValue : (total * advanceValue) / 100));
+  const percent = shop.payments.advancePercent ?? 0;
+  return Math.min(money(total), money((total * Math.min(100, Math.max(0, percent))) / 100));
 }
 
 export function paymentSplit(shop: Shop | null, total: number, method: PaymentMethod) {

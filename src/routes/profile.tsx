@@ -45,8 +45,8 @@ function ProfilePage() {
     <CustomerShell>
       <PageHeader title="Profile" subtitle="Your details and saved addresses." />
 
-      <div className="container-page grid gap-6 pb-16 lg:grid-cols-[1fr_320px]">
-        <div className="space-y-6">
+      <div className="container-page grid gap-6 pb-16 lg:grid-cols-[1fr_1fr]">
+        
           <div className="card-surface p-5 md:p-6">
             <h2 className="inline-flex items-center gap-2 text-base font-semibold">
               <User className="h-4 w-4 text-primary" /> Personal details
@@ -164,9 +164,9 @@ function ProfilePage() {
               </div>
             )}
           </div>
-        </div>
+        
 
-        <aside className="card-surface h-fit p-5">
+        {/* <aside className="card-surface h-fit p-5">
           <h2 className="text-base font-semibold">Printing summary</h2>
           <dl className="mt-4 space-y-3 text-sm">
             <div className="flex justify-between">
@@ -186,7 +186,7 @@ function ProfilePage() {
               </dd>
             </div>
           </dl>
-        </aside>
+        </aside> */}
       </div>
     </CustomerShell>
   );
