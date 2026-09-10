@@ -3,7 +3,7 @@ import { orderStatusLabel, paymentStatusLabel } from "@/lib/labels";
 import type { OrderStatus, PaymentStatus } from "@/types";
 
 const tone: Record<OrderStatus, string> = {
-  NEW: "bg-warning-light text-warning-foreground border-warning/40",
+  NEW: "bg-warning-light text-warning border-warning/40",
   ACCEPTED: "bg-primary-light text-primary border-primary/25",
   PRINTING: "bg-primary-light text-primary border-primary/25",
   FINISHING: "bg-primary-light text-primary border-primary/25",

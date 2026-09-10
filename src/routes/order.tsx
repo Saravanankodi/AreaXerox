@@ -1,18 +1,20 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   FileText,
   Trash2,
-  Star,
   Check,
   ChevronLeft,
   ChevronRight,
-  Truck,
+  Clock,
+  MapPin,
+  Phone,
   Store as StoreIcon,
+  Truck,
   Wallet,
   PartyPopper,
-  MessageCircle,
   Eye,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CustomerShell } from "@/components/layout/CustomerShell";
@@ -31,21 +33,15 @@ import { DocumentUploadCard } from "@/components/home/DocumentUploadCard";
 import { cn } from "@/lib/utils";
 import { newOrderId, useStore } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
-import {
-  advanceAmount,
-  calculateDocumentPrices,
-  calculateOrderPrice,
-  calculatePrice,
-  inr,
-  paymentSplit,
-} from "@/lib/pricing";
+import { calculateDocumentPrices, calculateOrderPrice, inr, paymentSplit } from "@/lib/pricing";
 import { detectPageCount } from "@/lib/document-pages";
 import { paymentMethodLabel } from "@/lib/labels";
-import { shareDocumentsViaWhatsApp } from "@/lib/whatsapp";
+import { ACCEPTED_UPLOAD_TYPES, isSupportedUpload } from "@/lib/upload-config";
 import type {
   Address,
   DocumentFile,
   Fulfillment,
+  Orientation,
   Order,
   PaymentMethod,
   PrintConfig,
@@ -55,13 +51,13 @@ import type {
 export const Route = createFileRoute("/order")({
   head: () => ({
     meta: [
-      { title: "Place a Print Order — Order My Xerox" },
+      { title: "Place a Print Order — XEROXIFY" },
       {
         name: "description",
         content:
           "Upload documents, choose paper, colour, binding and delivery, then pay your way — in one guided flow.",
       },
-      { property: "og:title", content: "Place a Print Order — Order My Xerox" },
+      { property: "og:title", content: "Place a Print Order — XEROXIFY" },
       {
         property: "og:description",
         content: "A six-step guided flow from upload to confirmed print order.",
@@ -77,7 +73,6 @@ const STEP_TITLES = [
   "Pickup / delivery",
   "Payment + preview",
 ];
-const SHOPS_PER_PAGE = 2;
 
 const defaultConfig: PrintConfig = {
   paperTypeId: "a4",
@@ -128,7 +123,7 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="card-surface p-5 md:px-6 md:py-4">
+    <div className="md:card-surface p-5 md:px-6 md:py-4">
       <h2 className="text-base font-semibold">{title}</h2>
       {hint && <p className="mt-1 text-sm text-muted-foreground">{hint}</p>}
       <div className="mt-5">{children}</div>
@@ -136,39 +131,62 @@ function SectionCard({
   );
 }
 
+/** Physical sheets from quantity, duplex format, and n-up layout. Colour does not change sheet count. */
+function printedPaperCount(pages: number, config: PrintConfig) {
+  const copies = Math.max(1, Math.floor(config.copies));
+  const layout = config.pageLayout ?? 1;
+  const pageCount = Math.max(1, Math.floor(pages));
+  const impressions = Math.ceil(pageCount / layout);
+  const sheetsPerCopy = config.side === "double" ? Math.ceil(impressions / 2) : impressions;
+  return sheetsPerCopy * copies;
+}
+
 function FilePrintOptions({
   document,
+  index,
   shop,
   fallback,
+  onSelect,
   onChange,
   onInstructionsChange,
-  onPagesChange,
   onPreview,
   onRemove,
 }: {
   document: DocumentFile;
+  index: number;
   shop: Shop;
   fallback: PrintConfig;
+  onSelect: () => void;
   onChange: (updater: (config: PrintConfig) => PrintConfig) => void;
   onInstructionsChange: (value: string) => void;
-  onPagesChange: (pages: number) => void;
   onPreview: () => void;
   onRemove: () => void;
 }) {
   const config = document.printConfig ?? fallback;
   const pageLayout = config.pageLayout ?? 1;
-  const quote = calculatePrice(shop, [document], config, "pickup");
+  const papers = printedPaperCount(document.pages, config);
   const enabledPapers = shop.paperTypes.filter((paper) => paper.enabled);
   return (
-    <article className="card-surface overflow-hidden">
+    <article onClick={onSelect} className="card-surface min-w-0 cursor-pointer overflow-hidden">
       <div className="flex items-start justify-between gap-3 border-b border-border bg-secondary/50 px-4 py-3">
         <div className="flex min-w-0 items-start gap-2">
           <FileText className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{document.name}</p>
+            <span className="inline-flex rounded-md bg-primary-light px-2 py-0.5 text-[11px] font-semibold text-primary">
+              Document {index + 1}
+            </span>
+            <p className="mt-1.5 truncate text-sm font-semibold">{document.name}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {document.pages} pages · {document.sizeMb} MB ·{" "}
-              {document.pageCountDetected ? "Detected automatically" : "Confirm page count"}
+              {document.detectingPages
+                ? "Detecting pages..."
+                : `${document.pages} page${document.pages === 1 ? "" : "s"} · ${document.sizeMb} MB · ${
+                    document.pageCountDetected ? "Detected automatically" : "Confirm page count"
+                  }`}
+            </p>
+            <p className="mt-1 text-xs font-semibold text-foreground">
+              {document.detectingPages
+                ? "Detecting..."
+                : `${papers} ${papers === 1 ? "paper" : "papers"}`}
             </p>
           </div>
         </div>
@@ -178,14 +196,20 @@ function FilePrintOptions({
             size="icon"
             variant="ghost"
             className="h-10 w-10"
-            onClick={onPreview}
+            onClick={(event) => {
+              event.stopPropagation();
+              onPreview();
+            }}
             aria-label={`Preview ${document.name}`}
           >
             <Eye className="h-4 w-4" />
           </Button>
           <button
             type="button"
-            onClick={onRemove}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRemove();
+            }}
             className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
             aria-label={`Remove ${document.name}`}
           >
@@ -193,128 +217,140 @@ function FilePrintOptions({
           </button>
         </div>
       </div>
-      <div className="grid gap-3 p-4 sm:grid-cols-2">
-        <div>
-          <Label className="text-xs font-semibold text-subtle">PAGES</Label>
-          <Input
-            aria-label={`Pages in ${document.name}`}
-            className="mt-1.5 h-9"
-            type="number"
-            min={1}
-            value={document.pages}
-            onChange={(event) =>
-              onPagesChange(Math.max(1, Math.floor(Number(event.target.value) || 1)))
-            }
-          />
-        </div>
-        <SelectControl
-          label="Paper type"
-          value={config.paperTypeId}
-          onChange={(value) => onChange((current) => ({ ...current, paperTypeId: value }))}
-        >
-          {enabledPapers.map((paper) => (
-            <option key={paper.id} value={paper.id}>
-              {paper.name}
-            </option>
-          ))}
-        </SelectControl>
-        <div>
-          <Label className="text-xs font-semibold text-subtle">QUANTITY</Label>
-          <div className="mt-1.5 flex h-9 overflow-hidden rounded-md border border-input bg-card">
-            <button
-              type="button"
-              className="w-10 text-base hover:bg-secondary"
-              onClick={() =>
-                onChange((current) => ({ ...current, copies: Math.max(1, current.copies - 1) }))
+      <div className="order-doc-card-details">
+        <div className="order-doc-card-details-inner">
+          <div className="grid grid-cols-2 gap-3 p-4 min-[420px]:grid-cols-2">
+            <SelectControl
+              label="Paper type"
+              value={config.paperTypeId}
+              onChange={(value) => onChange((current) => ({ ...current, paperTypeId: value }))}
+            >
+              {enabledPapers.map((paper) => (
+                <option key={paper.id} value={paper.id}>
+                  {paper.name}
+                </option>
+              ))}
+            </SelectControl>
+            <div>
+              <Label className="text-xs font-semibold text-subtle">QUANTITY</Label>
+              <div className="mt-1.5 flex h-9 overflow-hidden rounded-md border border-input bg-card">
+                <button
+                  type="button"
+                  className="w-10 text-base hover:bg-secondary"
+                  onClick={() =>
+                    onChange((current) => ({ ...current, copies: Math.max(1, current.copies - 1) }))
+                  }
+                >
+                  −
+                </button>
+                <span className="flex flex-1 items-center justify-center border-x border-input text-xs font-semibold">
+                  {config.copies}
+                </span>
+                <button
+                  type="button"
+                  className="w-10 text-base hover:bg-secondary"
+                  onClick={() =>
+                    onChange((current) => ({ ...current, copies: current.copies + 1 }))
+                  }
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            <SelectControl
+              label="Colour"
+              value={config.printType}
+              onChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  printType: value as PrintConfig["printType"],
+                }))
               }
             >
-              −
-            </button>
-            <span className="flex flex-1 items-center justify-center border-x border-input text-xs font-semibold">
-              {config.copies}
-            </span>
-            <button
-              type="button"
-              className="w-10 text-base hover:bg-secondary"
-              onClick={() => onChange((current) => ({ ...current, copies: current.copies + 1 }))}
+              <option value="bw">Black & White</option>
+              {shop.printTypes.color && <option value="color">Colour</option>}
+            </SelectControl>
+            <SelectControl
+              label="Format"
+              value={config.side}
+              onChange={(value) =>
+                onChange((current) => ({ ...current, side: value as PrintConfig["side"] }))
+              }
             >
-              +
-            </button>
+              <option value="single">Front only</option>
+              {shop.printSides.double && <option value="double">Front & back</option>}
+            </SelectControl>
+            <SelectControl
+              label="Page layout"
+              value={String(pageLayout)}
+              onChange={(value) =>
+                onChange((current) => ({ ...current, pageLayout: Number(value) as 1 | 2 | 4 }))
+              }
+            >
+              <option value="1">1 Page / Sheet</option>
+              <option value="2">2 Pages / Sheet</option>
+              <option value="4">4 Pages / Sheet</option>
+            </SelectControl>
+            <SelectControl
+              label="Binding"
+              value={config.bindingId ?? "none"}
+              onChange={(value) =>
+                onChange((current) => ({ ...current, bindingId: value === "none" ? null : value }))
+              }
+            >
+              <option value="none">No binding</option>
+              {shop.binding
+                .filter((option) => option.enabled)
+                .map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name} · {inr(option.price)}
+                  </option>
+                ))}
+            </SelectControl>
+            <SelectControl
+              label="Lamination / extras"
+              value={config.additionalIds[0] ?? "none"}
+              onChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  additionalIds: value === "none" ? [] : [value],
+                }))
+              }
+            >
+              <option value="none">No extra service</option>
+              {shop.additional
+                .filter((option) => option.enabled)
+                .map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name} · {inr(option.price)} {option.perPage ? "/ page" : "/ set"}
+                  </option>
+                ))}
+            </SelectControl>
+            <SelectControl
+              label="Orientation"
+              value={config.orientation}
+              onChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  orientation: value as Orientation,
+                }))
+              }
+            >
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Landscape</option>
+            </SelectControl>
+            <div className="min-[420px]:col-span-2">
+              <Label className="text-xs font-semibold text-subtle">
+                SPECIAL INSTRUCTIONS (OPTIONAL)
+              </Label>
+              <Input
+                className="mt-1.5 h-9 text-xs"
+                placeholder="e.g. staple at top-left"
+                value={document.instructions ?? ""}
+                onChange={(event) => onInstructionsChange(event.target.value)}
+              />
+            </div>
           </div>
-        </div>
-        <SelectControl
-          label="Colour"
-          value={config.printType}
-          onChange={(value) =>
-            onChange((current) => ({ ...current, printType: value as PrintConfig["printType"] }))
-          }
-        >
-          <option value="bw">Black & White</option>
-          {shop.printTypes.color && <option value="color">Colour</option>}
-        </SelectControl>
-        <SelectControl
-          label="Format"
-          value={config.side}
-          onChange={(value) =>
-            onChange((current) => ({ ...current, side: value as PrintConfig["side"] }))
-          }
-        >
-          <option value="single">Front only</option>
-          {shop.printSides.double && <option value="double">Front & back</option>}
-        </SelectControl>
-        <SelectControl
-          label="Page layout"
-          value={String(pageLayout)}
-          onChange={(value) =>
-            onChange((current) => ({ ...current, pageLayout: Number(value) as 1 | 2 | 4 }))
-          }
-        >
-          <option value="1">1 Page / Sheet</option>
-          <option value="2">2 Pages / Sheet</option>
-          <option value="4">4 Pages / Sheet</option>
-        </SelectControl>
-        <SelectControl
-          label="Binding"
-          value={config.bindingId ?? "none"}
-          onChange={(value) =>
-            onChange((current) => ({ ...current, bindingId: value === "none" ? null : value }))
-          }
-        >
-          <option value="none">No binding</option>
-          {shop.binding
-            .filter((option) => option.enabled)
-            .map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.name} · {inr(option.price)}
-              </option>
-            ))}
-        </SelectControl>
-        <SelectControl
-          label="Lamination / extras"
-          value={config.additionalIds[0] ?? "none"}
-          onChange={(value) =>
-            onChange((current) => ({ ...current, additionalIds: value === "none" ? [] : [value] }))
-          }
-        >
-          <option value="none">No extra service</option>
-          {shop.additional
-            .filter((option) => option.enabled)
-            .map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.name} · {inr(option.price)} {option.perPage ? "/ page" : "/ set"}
-              </option>
-            ))}
-        </SelectControl>
-        <div className="sm:col-span-2">
-          <Label className="text-xs font-semibold text-subtle">
-            SPECIAL INSTRUCTIONS (OPTIONAL)
-          </Label>
-          <Input
-            className="mt-1.5 h-9 text-xs"
-            placeholder="e.g. staple at top-left"
-            value={document.instructions ?? ""}
-            onChange={(event) => onInstructionsChange(event.target.value)}
-          />
         </div>
       </div>
       {/* <div className="flex items-center justify-between border-t border-dashed border-border px-4 py-3 text-sm"><span className="text-muted-foreground">{inr(quote.printing / Math.max(1, quote.billablePages))} per printed page · {quote.billablePages} pages</span><span className="font-bold">File total {inr(quote.total)}</span></div> */}
@@ -359,20 +395,20 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 function ShopSummaryPanel({
   shop,
   availability,
-  selectedPaper,
+  docs,
   config,
-  shareableFilesCount,
-  onShare,
+  fulfillment,
   onContinue,
 }: {
   shop: Shop;
   availability: { open: boolean; label: string };
-  selectedPaper: Shop["paperTypes"][number] | undefined;
+  docs: DocumentFile[];
   config: PrintConfig;
-  shareableFilesCount: number;
-  onShare: () => void;
+  fulfillment: Fulfillment;
   onContinue: () => void;
 }) {
+  const docPrices = calculateDocumentPrices(shop, docs, config);
+
   return (
     <>
       <div className="flex items-start justify-between gap-3 border-b border-border pb-4">
@@ -396,85 +432,92 @@ function ShopSummaryPanel({
           {availability.label}
         </span>
       </div>
-      <dl className="mt-4 space-y-2.5 text-sm">
-        <DetailRow
-          label="Per page price"
-          value={
-            selectedPaper
-              ? inr(config.printType === "color" ? selectedPaper.colorPrice : selectedPaper.bwPrice)
-              : "—"
-          }
-        />
-        <DetailRow
-          label="Black & White"
-          value={selectedPaper?.bwEnabled ? inr(selectedPaper.bwPrice) : "Not available"}
-        />
-        <DetailRow
-          label="Colour"
-          value={
-            selectedPaper?.colorEnabled && shop.printTypes.color
-              ? inr(selectedPaper.colorPrice)
-              : "Not available"
-          }
-        />
-        <DetailRow
-          label="Binding"
-          value={
-            shop.binding.filter((option) => option.enabled).length
-              ? shop.binding
-                  .filter((option) => option.enabled)
-                  .map((option) => `${option.name} ${inr(option.price)}`)
-                  .join(" · ")
-              : "No binding"
-          }
-        />
-      </dl>
-      <div className="mt-4 border-t border-border pt-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-subtle">Other services</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {shop.additional.filter((option) => option.enabled).length ? (
-            shop.additional
-              .filter((option) => option.enabled)
-              .map((option) => (
-                <span
-                  key={option.id}
-                  className="rounded-md bg-secondary px-2 py-1 text-xs font-medium"
-                >
-                  {option.name} {inr(option.price)}
-                  {option.perPage ? "/page" : ""}
-                </span>
-              ))
-          ) : (
-            <span className="text-xs text-muted-foreground">No extra services enabled</span>
-          )}
+
+      {docs.length > 0 && (
+        <div className="mt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-subtle">File costs</p>
+          <div className="mt-3 space-y-3">
+            {docs.map((document, index) => {
+              const fileConfig = document.printConfig ?? config;
+              const filePaper = shop.paperTypes.find(
+                (item) => item.id === fileConfig.paperTypeId && item.enabled,
+              );
+              const priceLine = docPrices[index];
+              if (!priceLine) return null;
+
+              const bindingOption = fileConfig.bindingId
+                ? shop.binding.find((item) => item.id === fileConfig.bindingId && item.enabled)
+                : null;
+              const additionalOptions = fileConfig.additionalIds
+                .map((id) => shop.additional.find((item) => item.id === id && item.enabled))
+                .filter((opt): opt is NonNullable<typeof opt> => !!opt);
+
+              const extras: string[] = [];
+              if (bindingOption) extras.push(bindingOption.name);
+              additionalOptions.forEach((option) => extras.push(option.name));
+
+              return (
+                <div key={document.id}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">Document {index + 1}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {document.pages} page{document.pages === 1 ? "" : "s"} · {fileConfig.copies}{" "}
+                        copy{fileConfig.copies === 1 ? "" : ""} ·{" "}
+                        {fileConfig.printType === "color" ? "Colour" : "B/W"} ·{" "}
+                        {filePaper?.name ?? "Paper"}
+                        {extras.length > 0 && ` · ${extras.join(" · ")}`}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-sm font-semibold">{inr(priceLine.total)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {(() => {
+            const totalPrinting = docPrices.reduce((sum, p) => sum + p.printing, 0);
+            const totalBinding = docPrices.reduce((sum, p) => sum + p.binding, 0);
+            const totalServices = docPrices.reduce((sum, p) => sum + p.services, 0);
+            const finalTotal = totalPrinting + totalBinding + totalServices;
+            const hasAny = totalPrinting > 0 || totalBinding > 0 || totalServices > 0;
+            if (!hasAny) return null;
+            return (
+              <div className="mt-3 border-t border-border pt-3 space-y-1 text-xs">
+                {totalPrinting > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Printing</span>
+                    <span className="font-medium">{inr(totalPrinting)}</span>
+                  </div>
+                )}
+                {totalBinding > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Binding</span>
+                    <span className="font-medium">{inr(totalBinding)}</span>
+                  </div>
+                )}
+                {totalServices > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Lamination</span>
+                    <span className="font-medium">{inr(totalServices)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between border-t border-border pt-1 text-sm font-bold">
+                  <span>Final total</span>
+                  <span>{inr(finalTotal)}</span>
+                </div>
+              </div>
+            );
+          })()}
         </div>
-      </div>
-      <div className="mt-4 rounded-lg bg-secondary/70 p-3">
-        <p className="text-xs font-semibold">Shop WhatsApp</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {shop.whatsappNumber
-            ? "Available for this selected shop."
-            : "WhatsApp is not available for this shop."}
-        </p>
-      </div>
-      <div className="mt-5 grid gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          disabled={!shop.whatsappNumber || !shareableFilesCount}
-          onClick={onShare}
-        >
-          <MessageCircle className="h-4 w-4" /> Send via WhatsApp
-        </Button>
-        <Button type="button" onClick={onContinue}>
+      )}
+
+      <div className="mt-5">
+        <Button type="button" onClick={onContinue} className="w-full">
           Continue <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
-      {!shareableFilesCount && shop.whatsappNumber && (
-        <p className="mt-2 text-center text-xs text-muted-foreground">
-          Upload at least one file to share it on WhatsApp.
-        </p>
-      )}
     </>
   );
 }
@@ -546,7 +589,7 @@ function DocumentPreviewDialog({
 }
 
 function shopAvailability(shop: Shop, now = new Date()) {
-  if (!shop.openingTime || !shop.closingTime) return { open: true, label: "Hours available" };
+  if (!shop.openingTime || !shop.closingTime) return { open: true, label: "Open" };
   const toMinutes = (value: string) => {
     const [hours = 0, minutes = 0] = value.split(":").map(Number);
     return hours * 60 + minutes;
@@ -558,7 +601,7 @@ function shopAvailability(shop: Shop, now = new Date()) {
     opening <= closing
       ? current >= opening && current < closing
       : current >= opening || current < closing;
-  return { open, label: open ? "Open now" : "Closed now" };
+  return { open, label: open ? "Open" : "Closed" };
 }
 
 function paymentMethodAvailable(shop: Shop, fulfillment: Fulfillment, method: PaymentMethod) {
@@ -606,8 +649,9 @@ function OrderPage() {
   const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(null);
   const [fulfillmentDialogOpen, setFulfillmentDialogOpen] = useState(false);
   const [shopConfirmed, setShopConfirmed] = useState(true);
-  const [shopPage, setShopPage] = useState(1);
   const [mobileShopSummaryOpen, setMobileShopSummaryOpen] = useState(false);
+  const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
+  const addMoreFilesRef = useRef<HTMLInputElement>(null);
 
   const shop = useMemo<Shop>(
     () => shops.find((s) => s.id === shopId) ?? shops[0]!,
@@ -623,17 +667,8 @@ function OrderPage() {
   );
   const split = paymentSplit(shop, price.total, method);
   const address = addresses.find((a) => a.id === addressId) ?? null;
-  const selectedPaper =
-    shop.paperTypes.find((item) => item.id === config.paperTypeId && item.enabled) ??
-    shop.paperTypes.find((item) => item.enabled);
   const selectedAvailability = shopAvailability(shop);
-  const shareableFiles = docs
-    .map((document) => uploadedFiles[document.id])
-    .filter((file): file is File => !!file);
   const previewDocument = docs.find((document) => document.id === previewDocumentId) ?? null;
-  const shopPageCount = Math.max(1, Math.ceil(shops.length / SHOPS_PER_PAGE));
-  const paginatedShops = shops.slice((shopPage - 1) * SHOPS_PER_PAGE, shopPage * SHOPS_PER_PAGE);
-
   useEffect(() => {
     if (paymentMethodAvailable(shop, fulfillment, method)) return;
     const replacement = (
@@ -644,29 +679,64 @@ function OrderPage() {
 
   const addFiles = async (incoming: File[]) => {
     if (!incoming.length) return;
-    const scanned = await Promise.all(
-      incoming.map(async (file, index) => {
-        const pageInfo = await detectPageCount(file);
-        const id = `doc-${Date.now()}-${index}`;
-        return {
-          file,
-          document: {
-            id,
-            name: file.name,
-            pages: pageInfo.pages,
-            pageCountDetected: pageInfo.detected,
-            printConfig: { ...defaultConfig, additionalIds: [] },
-            sizeMb: Math.max(0.1, Number((file.size / 1024 / 1024).toFixed(1))),
-          },
-        };
-      }),
-    );
-    setDocs((current) => [...current, ...scanned.map((item) => item.document)]);
+
+    // Create document entries immediately with detecting state.
+    const pendingDocs = incoming.map((file, index) => {
+      const id = `doc-${Date.now()}-${index}`;
+      return {
+        file,
+        document: {
+          id,
+          name: file.name,
+          pages: 0,
+          pageCountDetected: false,
+          detectingPages: true,
+          printConfig: { ...defaultConfig, additionalIds: [] },
+          sizeMb: Math.max(0.1, Number((file.size / 1024 / 1024).toFixed(1))),
+        },
+      };
+    });
+
+    // Add to state immediately so the UI shows "Detecting pages..."
+    const added = pendingDocs.map((item) => item.document);
+    setDocs((current) => [...current, ...added]);
+    setActiveDocumentId(added[added.length - 1]?.id ?? null);
     setUploadedFiles((current) => ({
       ...current,
-      ...Object.fromEntries(scanned.map((item) => [item.document.id, item.file])),
+      ...Object.fromEntries(pendingDocs.map((item) => [item.document.id, item.file])),
     }));
-    const needsReview = scanned.filter((item) => !item.document.pageCountDetected).length;
+
+    // Detect pages in parallel and update each document as it completes.
+    await Promise.all(
+      pendingDocs.map(async ({ file, document }) => {
+        try {
+          const pageInfo = await detectPageCount(file);
+          setDocs((current) =>
+            current.map((doc) =>
+              doc.id === document.id
+                ? {
+                    ...doc,
+                    pages: pageInfo.pages,
+                    pageCountDetected: pageInfo.detected,
+                    detectingPages: false,
+                  }
+                : doc,
+            ),
+          );
+        } catch {
+          setDocs((current) =>
+            current.map((doc) =>
+              doc.id === document.id
+                ? { ...doc, pages: 1, pageCountDetected: false, detectingPages: false }
+                : doc,
+            ),
+          );
+        }
+      }),
+    );
+
+    // Show final toast after all detections complete.
+    const needsReview = pendingDocs.filter((item) => !item.document.pageCountDetected).length;
     toast.success(`${incoming.length} document${incoming.length > 1 ? "s" : ""} added`, {
       description: needsReview
         ? `${needsReview} file${needsReview > 1 ? "s need" : " needs"} page-count review.`
@@ -724,35 +794,6 @@ function OrderPage() {
         };
       }),
     );
-  };
-
-  const sendSelectedShopWhatsApp = async () => {
-    if (!shop.whatsappNumber) return;
-    if (!shareableFiles.length) {
-      toast.error(
-        "The original uploaded file is no longer available to share. Add it again to continue.",
-      );
-      return;
-    }
-    const documents = docs
-      .map(
-        (document) => `${document.name} (${document.pages} page${document.pages === 1 ? "" : "s"})`,
-      )
-      .join(", ");
-    const result = await shareDocumentsViaWhatsApp(
-      shareableFiles,
-      shop.whatsappNumber,
-      `Hello ${shop.name}, I’m preparing a print order with Order My Xerox. Documents: ${documents}. Please review the selected files and print requirements.`,
-    );
-    if (result === "share-sheet")
-      toast.success("Ready to share", {
-        description: "Choose WhatsApp in the share sheet to send the selected files.",
-      });
-    if (result === "whatsapp-opened")
-      toast.success("WhatsApp opened", {
-        description:
-          "Your order details are prefilled. Attach the selected files there if required.",
-      });
   };
 
   const paper = shop.paperTypes.find((p) => p.id === config.paperTypeId);
@@ -871,7 +912,7 @@ function OrderPage() {
   return (
     <CustomerShell>
       <div className="container-page py-8 md:py-5">
-        <h1 className="text-page-title font-bold">Order My Xerox</h1>
+        {/* <h1 className="text-page-title font-bold">XEROXIFY</h1> */}
         {/* <p className="mt-2 text-sm text-muted-foreground">
           Step {step + 1} of {STEP_TITLES.length} — {STEP_TITLES[step]}
         </p>
@@ -882,8 +923,13 @@ function OrderPage() {
         <div className={cn("mt-6 grid gap-6", step === 1 && "md:grid-cols-[1fr_340px]")}>
           <div className="space-y-4">
             {step === 0 && (
-              <section className="grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-                <div className="md:sticky md:top-6 md:self-start">
+              <section className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+                <div
+                  className={cn(
+                    "md:sticky md:top-6 md:self-start",
+                    docs.length > 0 && "hidden md:block",
+                  )}
+                >
                   <SectionCard
                     title="Upload documents"
                     hint="Add one or more files. You can update each file’s print settings alongside it."
@@ -894,6 +940,7 @@ function OrderPage() {
                       onFilesRemoved={() => {
                         setDocs([]);
                         setUploadedFiles({});
+                        setActiveDocumentId(null);
                       }}
                       className="p-0 shadow-none"
                     />
@@ -903,13 +950,15 @@ function OrderPage() {
                   title="Documents + specifications"
                   hint="Every file has its own print settings and quote."
                 >
-                  <div className="space-y-4">
-                    {docs.map((document) => (
+                  <div className=" space-y-4  ">
+                    {docs.map((document, index) => (
                       <FilePrintOptions
                         key={document.id}
                         document={document}
+                        index={index}
                         shop={shop}
                         fallback={config}
+                        onSelect={() => setActiveDocumentId(document.id)}
                         onChange={(updater) =>
                           setDocs((all) =>
                             all.map((item) =>
@@ -929,16 +978,17 @@ function OrderPage() {
                             ),
                           )
                         }
-                        onPagesChange={(pages) =>
-                          setDocs((all) =>
-                            all.map((item) =>
-                              item.id === document.id ? { ...item, pages } : item,
-                            ),
-                          )
-                        }
                         onPreview={() => setPreviewDocumentId(document.id)}
                         onRemove={() => {
-                          setDocs((all) => all.filter((item) => item.id !== document.id));
+                          setDocs((all) => {
+                            const next = all.filter((item) => item.id !== document.id);
+                            setActiveDocumentId((current) =>
+                              current === document.id
+                                ? (next[next.length - 1]?.id ?? null)
+                                : current,
+                            );
+                            return next;
+                          });
                           setUploadedFiles((all) => {
                             const { [document.id]: _removed, ...rest } = all;
                             return rest;
@@ -952,6 +1002,35 @@ function OrderPage() {
                       </div>
                     )}
                   </div>
+                  {docs.length > 0 && (
+                    <div className="mt-4 md:hidden">
+                      <input
+                        ref={addMoreFilesRef}
+                        className="sr-only"
+                        type="file"
+                        accept={ACCEPTED_UPLOAD_TYPES}
+                        multiple
+                        onChange={(event) => {
+                          const selected = Array.from(event.target.files ?? []);
+                          event.currentTarget.value = "";
+                          const unsupported = selected.find((file) => !isSupportedUpload(file));
+                          if (unsupported) {
+                            toast.error(`${unsupported.name} is not a supported file type.`);
+                            return;
+                          }
+                          void addFiles(selected);
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => addMoreFilesRef.current?.click()}
+                      >
+                        <Upload className="h-4 w-4" /> Add Files
+                      </Button>
+                    </div>
+                  )}
                   <div className="mt-5 flex items-center justify-between gap-3 border-t border-border pt-5">
                     <Button variant="outline" onClick={() => setStep(0)} disabled>
                       <ChevronLeft className="h-4 w-4" /> Back
@@ -974,11 +1053,11 @@ function OrderPage() {
 
             {step === 1 && (
               <SectionCard
-                title="Nearby print shops"
+                title="Select Nearby print shops to Continue"
                 hint="Prices update instantly based on the shop you pick."
               >
-                <div className="space-y-3">
-                  {paginatedShops.map((s) => {
+                <div className="space-y-3 overflow-y-scroll  md:max-h-[45vh] scrollbar-hide">
+                  {shops.map((s) => {
                     const active = shopConfirmed && s.id === shopId;
                     const availability = shopAvailability(s);
                     const shopTotal = calculateOrderPrice(s, docs, config, fulfillment).total;
@@ -994,67 +1073,38 @@ function OrderPage() {
                             : "border-border bg-card hover:bg-secondary",
                         )}
                       >
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:gap-4">
+                          <div className="min-w-0 flex-1">
                             <p className="text-sm font-semibold">{s.name}</p>
                             <p className="mt-1 text-xs text-muted-foreground">{s.address}</p>
+                            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                              <span className="inline-flex items-center gap-1 rounded-md bg-card px-2 py-1 font-medium">
+                                ★ {s.rating}
+                              </span>
+                              <span className="rounded-md bg-card px-2 py-1 font-medium">
+                                {s.delivery.enabled ? "Pickup + Delivery" : "Pickup only"}
+                              </span>
+                            </div>
                           </div>
-                          <span
-                            className={cn(
-                              "rounded-full px-2.5 py-1 text-xs font-semibold",
-                              availability.open
-                                ? "bg-success-light text-success"
-                                : "bg-destructive/10 text-destructive",
-                            )}
-                          >
-                            {availability.label}
-                          </span>
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                          <span className="inline-flex items-center gap-1 rounded-md bg-card px-2 py-1 font-medium">
-                            <Star className="h-3 w-3 text-warning" /> {s.rating}
-                          </span>
-                          <span className="rounded-md bg-card px-2 py-1 font-medium">
-                            {s.delivery.enabled ? "Pickup + Delivery" : "Pickup only"}
-                          </span>
-                        </div>
-                        <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
-                          <span className="text-xs text-muted-foreground">
-                            Total for selected files
-                          </span>
-                          <span className="text-lg font-bold text-foreground">
-                            {inr(shopTotal)}
-                          </span>
+                          <div className="flex shrink-0 flex-col items-start gap-1.5 sm:items-end">
+                            <span
+                              className={cn(
+                                "rounded-full px-2.5 py-1 text-xs font-semibold",
+                                availability.open
+                                  ? "bg-success-light text-success"
+                                  : "bg-destructive/10 text-destructive",
+                              )}
+                            >
+                              {availability.label}
+                            </span>
+                            <p className="text-xs text-muted-foreground">{s.hours}</p>
+                            <p className="text-lg font-bold text-foreground">{inr(shopTotal)}</p>
+                          </div>
                         </div>
                       </button>
                     );
                   })}
                 </div>
-                {shopPageCount > 1 && (
-                  <div className="mt-5 flex items-center justify-between gap-3 border-t border-border pt-4">
-                    <p className="text-xs text-muted-foreground">
-                      Page {shopPage} of {shopPageCount}
-                    </p>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={shopPage === 1}
-                        onClick={() => setShopPage((page) => Math.max(1, page - 1))}
-                      >
-                        Previous
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={shopPage === shopPageCount}
-                        onClick={() => setShopPage((page) => Math.min(shopPageCount, page + 1))}
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  </div>
-                )}
                 <div className="mt-5 border-t border-border pt-5">
                   <Button variant="outline" onClick={() => setStep(0)}>
                     <ChevronLeft className="h-4 w-4" /> Back
@@ -1070,37 +1120,37 @@ function OrderPage() {
                 if (!open && step === 2) setStep(1);
               }}
             >
-              <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+              <DialogContent className="max-h-[200vh] overflow-y-auto sm:max-w-xl">
                 <DialogHeader>
                   <DialogTitle>How would you like to receive your order?</DialogTitle>
                   <DialogDescription>{shop.name}</DialogDescription>
                 </DialogHeader>
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="mt-5 grid gap-5 sm:grid-rows-2">
                   <button
                     type="button"
                     onClick={() => setFulfillment("pickup")}
                     className={cn(
-                      "rounded-lg border p-4 text-left",
+                      "rounded-lg border p-4 text-left flex flex-col gap-4 justify-center items-center",
                       fulfillment === "pickup"
                         ? "border-primary bg-primary-light"
                         : "border-border hover:bg-secondary",
                     )}
                   >
                     <StoreIcon className="h-5 w-5 text-primary" />
-                    <p className="mt-3 text-sm font-semibold">Pickup at shop</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="mt-3 sm:mt-0 text-sm font-semibold">Pickup at shop</p>
+                    {/* <p className="mt-1 text-xs text-muted-foreground">
                       Collect during{" "}
                       {shop.openingTime && shop.closingTime
                         ? `${shop.openingTime}–${shop.closingTime}`
                         : shop.hours}
-                    </p>
+                    </p> */}
                   </button>
                   <button
                     type="button"
                     disabled={!shop.delivery.enabled}
                     onClick={() => setFulfillment("delivery")}
                     className={cn(
-                      "rounded-lg border p-4 text-left",
+                      "rounded-lg border  flex flex-col  gap-4 justify-center items-center",
                       fulfillment === "delivery"
                         ? "border-primary bg-primary-light"
                         : "border-border hover:bg-secondary",
@@ -1108,8 +1158,8 @@ function OrderPage() {
                     )}
                   >
                     <Truck className="h-5 w-5 text-primary" />
-                    <p className="mt-3 text-sm font-semibold">Home delivery</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="mt-3 sm:mt-0 text-sm font-semibold">Home delivery</p>
+                    {/* <p className="mt-1 text-xs text-muted-foreground">
                       {shop.delivery.enabled
                         ? `${shop.delivery.etaMinutes} · ${inr(shop.delivery.fee)} fee${
                             shop.delivery.freeAbove
@@ -1117,12 +1167,12 @@ function OrderPage() {
                               : ""
                           }`
                         : "This shop does not deliver"}
-                    </p>
+                    </p> */}
                   </button>
                 </div>
                 {fulfillment === "delivery" && (
                   <div className="mt-5">
-                    <h3 className="text-sm font-semibold">Delivery address</h3>
+                    <h3 className="text-sm mb-2 font-semibold">Delivery address</h3>
                     <div className="space-y-3">
                       {addresses.map((a) => (
                         <button
@@ -1213,35 +1263,20 @@ function OrderPage() {
 
             {step === 3 && (
               <div className="flex flex-col gap-6 lg:flex-row">
-                <div className="w-full lg:w-1/2">
+                <div className="w-full space-y-6 lg:w-1/2 lg:sticky lg:top-24 lg:self-start">
                   <SectionCard title="Payment method" hint={`Accepted by ${shop.name}`}>
-                    <div className="space-y-3">
+                    <div className="space-y-2 grid-cols-2 gap-3 grid">
                       {(
                         [
-                          [
-                            "full",
-                            paymentMethodAvailable(shop, fulfillment, "full"),
-                            `Pay ${inr(price.total)} now`,
-                          ],
-                          [
-                            "advance",
-                            paymentMethodAvailable(shop, fulfillment, "advance"),
-                            `Pay ${inr(advanceAmount(shop, price.total))} now, rest on ${
-                              fulfillment === "pickup" ? "pickup" : "delivery"
-                            }`,
-                          ],
-                          [
-                            "cash_pickup",
-                            paymentMethodAvailable(shop, fulfillment, "cash_pickup"),
-                            "Pay the full amount when you collect",
-                          ],
+                          ["full", paymentMethodAvailable(shop, fulfillment, "full")],
+                          ["advance", paymentMethodAvailable(shop, fulfillment, "advance")],
+                          ["cash_pickup", paymentMethodAvailable(shop, fulfillment, "cash_pickup")],
                           [
                             "cash_delivery",
                             paymentMethodAvailable(shop, fulfillment, "cash_delivery"),
-                            "Pay the delivery partner in cash",
                           ],
                         ] as const
-                      ).map(([key, allowed, copy]) => (
+                      ).map(([key, allowed]) => (
                         <button
                           key={key}
                           type="button"
@@ -1259,9 +1294,6 @@ function OrderPage() {
                           <span>
                             <span className="block text-sm font-semibold">
                               {paymentMethodLabel[key as PaymentMethod]}
-                            </span>
-                            <span className="mt-0.5 block text-xs text-muted-foreground">
-                              {copy}
                             </span>
                           </span>
                         </button>
@@ -1281,6 +1313,22 @@ function OrderPage() {
                       />
                     </div>
                   </SectionCard>
+
+                  <div className="md:card-surface p-5 md:px-6 md:py-4">
+                    <h2 className="text-base font-semibold">Print shop</h2>
+                    <p className="mt-3 inline-flex items-center gap-2 text-sm font-medium">
+                      <StoreIcon className="h-4 w-4 text-primary" /> {shop.name}
+                    </p>
+                    <p className="mt-2 inline-flex items-start gap-2 text-sm text-muted-foreground">
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0" /> {shop.address}
+                    </p>
+                    <p className="mt-2 inline-flex items-center gap-2 text-sm text-muted-foreground">
+                      <Phone className="h-4 w-4" /> {shop.phone}
+                    </p>
+                    <p className="mt-2 inline-flex items-center gap-2 text-sm text-muted-foreground">
+                      <Clock className="h-4 w-4" /> {shop.hours}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="w-full lg:w-1/2">
@@ -1406,12 +1454,9 @@ function OrderPage() {
                   <ShopSummaryPanel
                     shop={shop}
                     availability={selectedAvailability}
-                    selectedPaper={selectedPaper}
+                    docs={docs}
                     config={config}
-                    shareableFilesCount={shareableFiles.length}
-                    onShare={() => {
-                      void sendSelectedShopWhatsApp();
-                    }}
+                    fulfillment={fulfillment}
                     onContinue={() => {
                       setStep(2);
                       setFulfillmentDialogOpen(true);
@@ -1421,7 +1466,7 @@ function OrderPage() {
                   <div className="rounded-lg border border-dashed border-border p-4 text-center">
                     <p className="text-sm font-semibold">Select a shop to continue</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Its live services, prices and WhatsApp availability will appear here.
+                      Its live services and prices will appear here.
                     </p>
                   </div>
                 )}
@@ -1443,12 +1488,9 @@ function OrderPage() {
             <ShopSummaryPanel
               shop={shop}
               availability={selectedAvailability}
-              selectedPaper={selectedPaper}
+              docs={docs}
               config={config}
-              shareableFilesCount={shareableFiles.length}
-              onShare={() => {
-                void sendSelectedShopWhatsApp();
-              }}
+              fulfillment={fulfillment}
               onContinue={() => {
                 setMobileShopSummaryOpen(false);
                 setStep(2);

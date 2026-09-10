@@ -11,13 +11,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/shop/services")({
   head: () => ({
     meta: [
-      { title: "Print Services & Pricing — Order My Xerox Shop" },
+      { title: "Print Services & Pricing — XEROXIFY Shop" },
       {
         name: "description",
         content:
           "Turn paper types, colour printing, binding and finishing services on or off and set your own per-page pricing.",
       },
-      { property: "og:title", content: "Print Services & Pricing — Order My Xerox Shop" },
+      { property: "og:title", content: "Print Services & Pricing — XEROXIFY Shop" },
       {
         property: "og:description",
         content: "Control exactly what customers can order from your shop.",

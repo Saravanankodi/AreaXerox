@@ -86,6 +86,8 @@ export interface DocumentFile {
   pages: number;
   sizeMb: number;
   pageCountDetected?: boolean;
+  /** True while the page count is being detected asynchronously. */
+  detectingPages?: boolean;
   printConfig?: PrintConfig;
   instructions?: string;
 }
@@ -175,4 +177,5 @@ export interface CustomerProfile {
   name: string;
   email: string;
   phone: string;
+  alternatephone?: string;
 }

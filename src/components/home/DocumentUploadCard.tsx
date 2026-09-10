@@ -95,7 +95,7 @@ export function DocumentUploadCard({
           "group rounded-2xl border-2 border-dashed p-6 text-center outline-none transition-all sm:p-8",
           state === "dragging"
             ? "border-primary bg-primary-light scale-[1.01]"
-            : "border-border bg-secondary/45 hover:border-primary hover:bg-primary-light/60 hover:shadow-raised",
+            : "border-primary bg-primary-light/60 shadow-raised",
           state === "error" && "border-destructive bg-destructive/5",
           state === "success" && "border-success/50 bg-success-light/60",
         )}

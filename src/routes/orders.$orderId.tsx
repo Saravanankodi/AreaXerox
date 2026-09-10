@@ -1,28 +1,23 @@
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, Check, Clock, FileText, MapPin, Phone, Store } from "lucide-react";
 import { CustomerShell } from "@/components/layout/CustomerShell";
 import { Button } from "@/components/ui/button";
 import { PaymentBadge, StatusBadge } from "@/components/StatusBadge";
 import { useStore } from "@/lib/store";
-import { inr } from "@/lib/pricing";
-import {
-  customerStatusCopy,
-  fulfillmentLabel,
-  orderStatusLabel,
-  paymentMethodLabel,
-  statusFlow,
-} from "@/lib/labels";
+import { calculateDocumentPrices, inr } from "@/lib/pricing";
+import { customerStatusCopy, fulfillmentLabel, orderStatusLabel, statusFlow } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/orders/$orderId")({
   head: () => ({
     meta: [
-      { title: "Order Details — Order My Xerox" },
+      { title: "Order Details — XEROXIFY" },
       {
         name: "description",
-        content: "Live timeline, print specification, payment breakdown and shop details for your order.",
+        content:
+          "Live timeline, print specification, payment breakdown and shop details for your order.",
       },
-      { property: "og:title", content: "Order Details — Order My Xerox" },
+      { property: "og:title", content: "Order Details — XEROXIFY" },
       { property: "og:description", content: "Follow your print order step by step." },
     ],
   }),
@@ -55,11 +50,15 @@ function OrderDetail() {
   const flow = statusFlow(order.fulfillment);
   const currentIndex = flow.indexOf(order.status);
   const reached = (s: string) => order.timeline.some((t) => t.status === s);
+  const docPrices = shop ? calculateDocumentPrices(shop, order.documents, order.config) : [];
 
   return (
     <CustomerShell>
       <div className="container-page py-8 md:py-12">
-        <Link to="/orders" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+        <Link
+          to="/orders"
+          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+        >
           <ArrowLeft className="h-4 w-4" /> My orders
         </Link>
 
@@ -84,54 +83,59 @@ function OrderDetail() {
           <div className="space-y-6">
             <div className="card-surface p-5 md:p-6">
               <h2 className="text-base font-semibold">Order timeline</h2>
-              <ol className="mt-5 space-y-0">
-                {flow.map((s, i) => {
-                  const entry = order.timeline.find((t) => t.status === s);
-                  const isDone = reached(s) && i < currentIndex;
-                  const isCurrent = s === order.status;
-                  return (
-                    <li key={s} className="flex gap-4">
-                      <div className="flex flex-col items-center">
-                        <span
-                          className={cn(
-                            "flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold",
-                            isDone && "border-success bg-success text-success-foreground",
-                            isCurrent && "border-primary bg-primary text-primary-foreground",
-                            !isDone && !isCurrent && "border-border bg-card text-subtle",
+              <div className="mt-5 overflow-x-auto pb-2">
+                <div className="flex min-w-[480px] items-start gap-0 px-10">
+                  {flow.map((s, i) => {
+                    const entry = order.timeline.find((t) => t.status === s);
+                    const isDone = reached(s) && i < currentIndex;
+                    const isCurrent = s === order.status;
+                    return (
+                      <div key={s} className="flex flex-1 flex-col items-center ">
+                        <div className="flex w-full items-center justify-center">
+                          {i > 0 && (
+                            <span
+                              className={cn(
+                                "h-px flex-1",
+                                isDone || isCurrent ? "bg-success" : "bg-border",
+                              )}
+                            />
                           )}
-                        >
-                          {isDone ? <Check className="h-4 w-4" /> : i + 1}
-                        </span>
-                        {i < flow.length - 1 && (
                           <span
                             className={cn(
-                              "w-px flex-1",
-                              isDone ? "bg-success" : "bg-border",
+                              "z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
+                              isDone && "border-success bg-success text-success-foreground",
+                              isCurrent && "border-primary bg-primary text-primary-foreground",
+                              !isDone && !isCurrent && "border-border bg-card text-subtle",
                             )}
-                          />
-                        )}
-                      </div>
-                      <div className="pb-6">
+                          >
+                            {isDone ? <Check className="h-4 w-4" /> : i + 1}
+                          </span>
+                          {i < flow.length - 1 && (
+                            <span
+                              className={cn("h-px flex-1", isDone ? "bg-success" : "bg-border")}
+                            />
+                          )}
+                        </div>
                         <p
                           className={cn(
-                            "text-sm font-semibold",
+                            "mt-2 text-center text-xs font-semibold",
                             !isDone && !isCurrent && "text-muted-foreground",
                           )}
                         >
                           {orderStatusLabel[s]}
                         </p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
+                        <p className="mt-0.5 text-center text-[11px] text-muted-foreground">
                           {entry
-                            ? new Date(entry.at).toLocaleString("en-IN")
+                            ? new Date(entry.at).toLocaleDateString("en-IN")
                             : isCurrent
                               ? "In progress"
                               : "Pending"}
                         </p>
                       </div>
-                    </li>
-                  );
-                })}
-              </ol>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
             <div className="card-surface p-5 md:p-6">
@@ -154,77 +158,122 @@ function OrderDetail() {
               </div>
             </div>
 
-            <div className="card-surface p-5 md:p-6">
+            <div className="">
               <h2 className="text-base font-semibold">Print specification</h2>
-              <dl className="mt-4 divide-y divide-border text-sm">
-                {(
-                  [
-                    ["Paper", order.configLabels.paper],
-                    ["Print type", order.configLabels.printType],
-                    ["Sides", order.configLabels.side],
-                    ["Orientation", order.configLabels.orientation],
-                    ["Copies", String(order.config.copies)],
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                {order.documents.map((doc, idx) => {
+                  const docConfig = doc.printConfig ?? order.config;
+                  const filePaper = shop?.paperTypes.find((p) => p.id === docConfig.paperTypeId);
+                  const bindingOption = docConfig.bindingId
+                    ? shop?.binding.find((b) => b.id === docConfig.bindingId)
+                    : null;
+                  const additionalOptions = docConfig.additionalIds
+                    .map((id) => shop?.additional.find((a) => a.id === id))
+                    .filter((o): o is NonNullable<typeof o> => !!o);
+                  const rows: [string, string][] = [
+                    ["Paper", filePaper?.name ?? "Paper"],
+                    ["Print type", docConfig.printType === "color" ? "Colour" : "Black & White"],
+                    ["Sides", docConfig.side === "double" ? "Front & Back" : "Front Only"],
+                    [
+                      "Orientation",
+                      docConfig.orientation === "portrait" ? "Portrait" : "Landscape",
+                    ],
+                    ["Copies", String(docConfig.copies)],
                     [
                       "Pages",
-                      order.config.pageRangeMode === "all"
+                      docConfig.pageRangeMode === "all"
                         ? "All pages"
-                        : order.config.pageRange || "All pages",
+                        : docConfig.pageRange || "All pages",
                     ],
-                    ["Binding", order.configLabels.binding],
+                    [
+                      "Page layout",
+                      `${docConfig.pageLayout ?? 1} Page${(docConfig.pageLayout ?? 1) > 1 ? "s" : ""} / Sheet`,
+                    ],
+                    ["Binding", bindingOption?.name ?? "None"],
                     [
                       "Extras",
-                      order.configLabels.additional.length
-                        ? order.configLabels.additional.join(", ")
+                      additionalOptions.length
+                        ? additionalOptions.map((a) => a.name).join(", ")
                         : "None",
                     ],
                     ["Fulfilment", fulfillmentLabel[order.fulfillment]],
-                  ] as const
-                ).map(([k, v]) => (
-                  <div key={k} className="flex justify-between gap-6 py-2.5">
-                    <dt className="text-muted-foreground">{k}</dt>
-                    <dd className="text-right font-medium">{v}</dd>
-                  </div>
-                ))}
-              </dl>
+                  ];
+                  return (
+                    <div
+                      key={doc.id}
+                      className="rounded-lg border border-border bg-secondary/50 p-4"
+                    >
+                      <p className="text-sm font-semibold">Document {idx + 1}</p>
+                      <dl className="mt-2 divide-y divide-border text-sm">
+                        {rows.map(([k, v]) => (
+                          <div key={k} className="flex justify-between gap-4 py-2">
+                            <dt className="text-muted-foreground">{k}</dt>
+                            <dd className="text-right font-medium">{v}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
           <aside className="space-y-6 lg:sticky lg:top-24 lg:self-start">
             <div className="card-surface p-5">
-              <h2 className="text-base font-semibold">Payment</h2>
-              <dl className="mt-4 space-y-2 text-sm">
-                <Row label="Printing" value={inr(order.price.printing)} />
-                <Row label="Binding" value={inr(order.price.binding)} />
-                <Row label="Extras" value={inr(order.price.services)} />
-                <Row label="Delivery" value={inr(order.price.delivery)} />
-                {order.price.discount > 0 && (
-                  <Row label="Discount" value={`− ${inr(order.price.discount)}`} />
-                )}
-              </dl>
-              <div className="mt-4 flex justify-between border-t border-border pt-4">
-                <span className="text-sm font-semibold">Total</span>
-                <span className="text-xl font-bold">{inr(order.price.total)}</span>
+              <h2 className="text-base font-semibold">File costs</h2>
+              <div className="mt-4 space-y-4 text-sm">
+                {order.documents.map((doc, idx) => {
+                  const docConfig = doc.printConfig ?? order.config;
+                  const filePaper = shop?.paperTypes.find((p) => p.id === docConfig.paperTypeId);
+                  const bindingOption = docConfig.bindingId
+                    ? shop?.binding.find((b) => b.id === docConfig.bindingId)
+                    : null;
+                  const additionalOptions = docConfig.additionalIds
+                    .map((id) => shop?.additional.find((a) => a.id === id))
+                    .filter((o): o is NonNullable<typeof o> => !!o);
+                  const extras: string[] = [];
+                  if (bindingOption) extras.push(bindingOption.name);
+                  additionalOptions.forEach((a) => extras.push(a.name));
+                  const priceLine = docPrices[idx];
+                  return (
+                    <div key={doc.id}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold">Document {idx + 1}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {doc.pages} page{doc.pages === 1 ? "" : "s"} · {docConfig.copies} copy
+                            {docConfig.copies === 1 ? "" : ""} ·{" "}
+                            {docConfig.printType === "color" ? "Colour" : "B/W"} ·{" "}
+                            {filePaper?.name ?? "Paper"}
+                            {extras.length > 0 && ` · ${extras.join(" · ")}`}
+                          </p>
+                        </div>
+                        <span className="shrink-0 font-semibold">{inr(priceLine?.total ?? 0)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="mt-4 space-y-1.5 rounded-lg bg-secondary p-3 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Method</span>
-                  <span className="font-semibold">{paymentMethodLabel[order.paymentMethod]}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Paid</span>
-                  <span className="font-semibold">{inr(order.amountPaid)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Balance</span>
-                  <span className="font-semibold">{inr(order.balance)}</span>
-                </div>
-              </div>
-              {order.balance > 0 && (
-                <p className="mt-3 text-xs text-muted-foreground">
-                  Balance of {inr(order.balance)} is collected at{" "}
-                  {order.fulfillment === "pickup" ? "pickup" : "delivery"}.
-                </p>
-              )}
+              {(() => {
+                const totalPrinting = docPrices.reduce((s, p) => s + p.printing, 0);
+                const totalBinding = docPrices.reduce((s, p) => s + p.binding, 0);
+                const totalServices = docPrices.reduce((s, p) => s + p.services, 0);
+                const finalTotal = totalPrinting + totalBinding + totalServices;
+                const hasAny = totalPrinting > 0 || totalBinding > 0 || totalServices > 0;
+                if (!hasAny) return null;
+                return (
+                  <div className="mt-4 space-y-1.5 border-t border-border pt-4 text-sm">
+                    {totalPrinting > 0 && <Row label="Printing" value={inr(totalPrinting)} />}
+                    {totalBinding > 0 && <Row label="Binding" value={inr(totalBinding)} />}
+                    {totalServices > 0 && <Row label="Extras" value={inr(totalServices)} />}
+                    <div className="flex justify-between border-t border-border pt-2">
+                      <span className="font-semibold">Final total</span>
+                      <span className="text-xl font-bold">{inr(finalTotal)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {shop && (

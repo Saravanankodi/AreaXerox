@@ -11,13 +11,13 @@ import { Button } from "@/components/ui/button";
 export const Route = createFileRoute("/shop/settings")({
   head: () => ({
     meta: [
-      { title: "Shop Settings — Order My Xerox Shop" },
+      { title: "Shop Settings — XEROXIFY Shop" },
       {
         name: "description",
         content:
           "Pause new orders, set daily order limits and choose how you get notified about new print jobs.",
       },
-      { property: "og:title", content: "Shop Settings — Order My Xerox Shop" },
+      { property: "og:title", content: "Shop Settings — XEROXIFY Shop" },
       { property: "og:description", content: "Operational controls for your print shop." },
     ],
   }),

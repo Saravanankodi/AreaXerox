@@ -10,12 +10,12 @@ import { fulfillmentLabel } from "@/lib/labels";
 export const Route = createFileRoute("/shop/")({
   head: () => ({
     meta: [
-      { title: "Shop Dashboard — Order My Xerox" },
+      { title: "Shop Dashboard — XEROXIFY" },
       {
         name: "description",
         content: "Today's print orders, revenue, pending balances and queue status for your shop.",
       },
-      { property: "og:title", content: "Shop Dashboard — Order My Xerox" },
+      { property: "og:title", content: "Shop Dashboard — XEROXIFY" },
       { property: "og:description", content: "Run your print shop from one screen." },
     ],
   }),

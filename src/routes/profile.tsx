@@ -12,12 +12,12 @@ import type { Address } from "@/types";
 export const Route = createFileRoute("/profile")({
   head: () => ({
     meta: [
-      { title: "My Profile & Addresses — Order My Xerox" },
+      { title: "My Profile & Addresses — XEROXIFY" },
       {
         name: "description",
         content: "Manage your name, phone, email and saved delivery addresses for faster printing.",
       },
-      { property: "og:title", content: "My Profile & Addresses — Order My Xerox" },
+      { property: "og:title", content: "My Profile & Addresses — XEROXIFY" },
       { property: "og:description", content: "Your printing account details and addresses." },
     ],
   }),
@@ -57,9 +57,10 @@ function ProfilePage() {
                   ["name", "Full name"],
                   ["phone", "Phone number"],
                   ["email", "Email address"],
+                  ["alternatephone", "Alternate phone number"],
                 ] as const
               ).map(([key, label]) => (
-                <div key={key} className={key === "email" ? "sm:col-span-2" : ""}>
+                <div key={key} >
                   <Label className="text-xs font-semibold text-subtle">{label}</Label>
                   <Input
                     className="mt-2"

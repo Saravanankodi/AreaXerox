@@ -23,22 +23,22 @@ function Index() {
   return <CustomerShell hideFooter={platform !== "web"}>
     <section className="home-hero relative overflow-hidden">
       <div className="home-orb home-orb-one" /> <div className="home-orb home-orb-two" />
-      <div className="container-page relative grid items-center gap-10 py-12 md:py-18 lg:grid-cols-[1.05fr_.95fr] lg:py-24">
+      <div className="container-page relative grid items-center gap-10 py-2 md:py-18 lg:grid-cols-[1.05fr_.95fr] lg:py-24">
         <div className="home-enter">
-          <span className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-card/75 px-3 py-1.5 text-xs font-semibold text-primary shadow-sm backdrop-blur"><Sparkles className="h-3.5 w-3.5" /> ORDER MY XEROX</span>
+          <span className="hidden md:inline-flex items-center gap-2 rounded-full border border-primary/20 bg-card/75 px-3 py-1.5 text-xs font-semibold text-primary shadow-sm backdrop-blur"><Sparkles className="h-3.5 w-3.5" /> XEROXIFY</span>
           <h1 className="mt-6 max-w-2xl text-4xl font-extrabold tracking-[-0.045em] text-foreground sm:text-5xl lg:text-6xl">Print Smarter.<br /><span className="text-primary">Skip the Queue.</span></h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-muted-foreground md:text-lg">Upload your documents, customize your printing, and get your order ready before you arrive.</p>
           <div className="mt-8 w-full hidden md:flex flex-wrap gap-3">
-            <Link to="/order" ><Button size="lg" className="shadow-lg shadow-primary/20 ">Order My Xerox <ArrowRight className="h-4 w-4" /></Button></Link>
+            <Link to="/order" ><Button size="lg" className="shadow-lg shadow-primary/20 ">XEROXIFY <ArrowRight className="h-4 w-4" /></Button></Link>
             <Link to="/orders"><Button size="lg" variant="outline" className="bg-card/70 ">Track my order</Button></Link>
           </div>
-          <div className="mt-8 flex flex-wrap gap-x-6 gap-y-3 text-sm font-medium text-muted-foreground"><span className="inline-flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-success" /> Privacy-first file handling</span><span className="inline-flex items-center gap-2"><Zap className="h-4 w-4 text-warning" /> Quotes update instantly</span></div>
+          <div className="mt-8 hidden md:flex flex-wrap gap-x-6 gap-y-3 text-sm font-medium text-muted-foreground"><span className="inline-flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-success" /> Privacy-first file handling</span><span className="inline-flex items-center gap-2"><Zap className="h-4 w-4 text-warning" /> Quotes update instantly</span></div>
         </div>
         <div className="home-enter-delayed mx-auto w-full max-w-xs md:max-w-lg"><DocumentUploadCard multiple onFilesSelected={(files) => { setPendingUploadFiles(files); navigate({ to: "/order" }); }} /></div>
-        <div className="mt-8 w-full md:hidden flex items-center justify-center flex-wrap gap-3">
-          <Link to="/order" ><Button size="lg" className="shadow-lg shadow-primary/20 ">Order My Xerox <ArrowRight className="h-4 w-4" /></Button></Link>
+        {/* <div className="mt-8 w-full md:hidden flex items-center justify-center flex-wrap gap-3">
+          <Link to="/order" ><Button size="lg" className="shadow-lg shadow-primary/20 ">XEROXIFY <ArrowRight className="h-4 w-4" /></Button></Link>
           <Link to="/orders"><Button size="lg" variant="outline" className="bg-card/70 ">Track my order</Button></Link>
-        </div>
+        </div> */}
       </div>
     </section>
 

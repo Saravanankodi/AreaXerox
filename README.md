@@ -1,10 +1,10 @@
-# order my xerox 
+# XEROXIFY 
 
 You are a Senior Product Designer, Senior UX Designer, Senior UI Designer, Senior Frontend Architect, and Senior Full-Stack Developer.
 
 Your task is to design and build a complete, production-quality web application called:
 
-ORDER MY XEROX
+XEROXIFY
 
 IMPORTANT:
 
@@ -158,7 +158,7 @@ src/
 
 ====================================================
 
-Order My Xerox is a two-sided platform.
+XEROXIFY is a two-sided platform.
 
 There are two major users:
 
@@ -250,7 +250,7 @@ THE CUSTOMER SIDE MUST HAVE ONLY THESE MAIN PAGES:
 
 1. Home
 
-2. Order My Xerox
+2. XEROXIFY
 
 3. My Orders
 
@@ -516,7 +516,7 @@ Logo
 
 Home
 
-Order My Xerox
+XEROXIFY
 
 My Orders
 
@@ -570,7 +570,7 @@ Upload your documents, customize your printing, and get your order ready before 
 
 Primary CTA:
 
-Order My Xerox
+XEROXIFY
 
 Secondary CTA:
 
@@ -592,7 +592,7 @@ QUICK SERVICES:
 
 Highlight the main service:
 
-Order My Xerox
+XEROXIFY
 
 Show simple supporting service indicators such as:
 
@@ -688,11 +688,11 @@ Upload your document and place your order in minutes.
 
 CTA:
 
-Order My Xerox
+XEROXIFY
 
 ====================================================
 
-9. ORDER MY XEROX PAGE
+9. XEROXIFY PAGE
 
 ====================================================
 
@@ -2784,7 +2784,7 @@ Open Home
 
 ↓
 
-Order My Xerox
+XEROXIFY
 
 ↓
 

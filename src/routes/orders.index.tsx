@@ -12,12 +12,12 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/orders/")({
   head: () => ({
     meta: [
-      { title: "My Print Orders — Order My Xerox" },
+      { title: "My Print Orders — XEROXIFY" },
       {
         name: "description",
         content: "Track every print order live: accepted, printing, ready for pickup or delivered.",
       },
-      { property: "og:title", content: "My Print Orders — Order My Xerox" },
+      { property: "og:title", content: "My Print Orders — XEROXIFY" },
       { property: "og:description", content: "Live status for all your print orders." },
     ],
   }),

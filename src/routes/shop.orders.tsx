@@ -13,13 +13,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/shop/orders")({
   head: () => ({
     meta: [
-      { title: "Manage Orders — Order My Xerox Shop" },
+      { title: "Manage Orders — XEROXIFY Shop" },
       {
         name: "description",
         content:
           "Accept print jobs, move them through printing and finishing, and collect pending balances.",
       },
-      { property: "og:title", content: "Manage Orders — Order My Xerox Shop" },
+      { property: "og:title", content: "Manage Orders — XEROXIFY Shop" },
       { property: "og:description", content: "Process print jobs from request to completion." },
     ],
   }),
