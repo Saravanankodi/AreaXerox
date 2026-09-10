@@ -34,7 +34,7 @@ export function CustomerShell({
             <span className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
               <Printer className="h-5 w-5" />
             </span>
-            <span className="text-[15px] font-bold tracking-tight">XEROXIFY</span>
+            <span className="text-[15px] font-bold tracking-tight">XEROXMATE</span>
           </Link>
 
           <nav className="hidden items-center gap-1 md:flex">
@@ -85,7 +85,7 @@ export function CustomerShell({
       {!hideFooter && (
         <footer className="mt-1 hidden border-t border-border bg-card md:block">
           <div className="container-page flex flex-col gap-2 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-            <p>© {new Date().getFullYear()} Order the Xerox · Print smarter, skip the queue.</p>
+            <p>© {new Date().getFullYear()} XEROXMATE · Print smarter, skip the queue.</p>
             <div className="flex gap-4">
               <Link to="/support" className="hover:text-foreground">
                 Support

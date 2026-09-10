@@ -51,13 +51,13 @@ import type {
 export const Route = createFileRoute("/order")({
   head: () => ({
     meta: [
-      { title: "Place a Print Order — XEROXIFY" },
+      { title: "Place a Print Order — XEROXMATE" },
       {
         name: "description",
         content:
           "Upload documents, choose paper, colour, binding and delivery, then pay your way — in one guided flow.",
       },
-      { property: "og:title", content: "Place a Print Order — XEROXIFY" },
+      { property: "og:title", content: "Place a Print Order — XEROXMATE" },
       {
         property: "og:description",
         content: "A six-step guided flow from upload to confirmed print order.",
@@ -465,7 +465,7 @@ function ShopSummaryPanel({
                         {document.pages} page{document.pages === 1 ? "" : "s"} · {fileConfig.copies}{" "}
                         copy{fileConfig.copies === 1 ? "" : ""} ·{" "}
                         {fileConfig.printType === "color" ? "Colour" : "B/W"} ·{" "}
-                        {filePaper?.name ?? "Paper"}
+                        {filePaper?.name ?? "Paper"} · {fileConfig.side === "double" ? "F&B" : "F"}
                         {extras.length > 0 && ` · ${extras.join(" · ")}`}
                       </p>
                     </div>
@@ -487,7 +487,7 @@ function ShopSummaryPanel({
               <div className="mt-3 border-t border-border pt-3 space-y-1 text-xs">
                 {totalPrinting > 0 && (
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Printing</span>
+                    <span className="text-muted-foreground">Priority Amount</span>
                     <span className="font-medium">{inr(totalPrinting)}</span>
                   </div>
                 )}
@@ -620,13 +620,18 @@ function OrderPage() {
     profile,
     placeOrder,
     saveAddress,
+    pendingDocs,
+    setPendingDocs,
+    clearPendingDocs,
     pendingUploadFiles,
     consumePendingUploadFiles,
+    uploadedFileNames,
+    setUploadedFileNames,
   } = useStore();
   const { session } = useAuth();
 
   const [step, setStep] = useState(0);
-  const [docs, setDocs] = useState<DocumentFile[]>([]);
+  const [docs, setDocs] = useState<DocumentFile[]>(pendingDocs);
   const [uploadedFiles, setUploadedFiles] = useState<Record<string, File>>({});
   const [config, setConfig] = useState<PrintConfig>(defaultConfig);
   const [shopId, setShopId] = useState<string>(shops[0]!.id);
@@ -652,6 +657,10 @@ function OrderPage() {
   const [mobileShopSummaryOpen, setMobileShopSummaryOpen] = useState(false);
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
   const addMoreFilesRef = useRef<HTMLInputElement>(null);
+  const shopScrollRef = useRef<HTMLDivElement>(null);
+  const [shopSearch, setShopSearch] = useState("");
+  const [shopLocationFilter, setShopLocationFilter] = useState("");
+  const [shopSortOrder, setShopSortOrder] = useState("");
 
   const shop = useMemo<Shop>(
     () => shops.find((s) => s.id === shopId) ?? shops[0]!,
@@ -676,6 +685,55 @@ function OrderPage() {
     ).find((candidate) => paymentMethodAvailable(shop, fulfillment, candidate));
     if (replacement) setMethod(replacement);
   }, [fulfillment, method, shop]);
+
+  // Extract unique locations from shop addresses for the location filter.
+  const shopLocations = useMemo(() => {
+    const parts = new Set<string>();
+    for (const s of shops) {
+      const addrParts = s.address.split(",").map((p) => p.trim());
+      // Use the area/neighborhood part (typically second-to-last before city).
+      if (addrParts.length >= 2) {
+        const area = addrParts[addrParts.length - 2];
+        if (area) parts.add(area.replace(/\s*-\s*\d{6}$/, "").trim());
+      }
+    }
+    return [...parts].sort();
+  }, [shops]);
+
+  // Filter and sort shops based on search, location, and sort order.
+  const filteredSortedShops = useMemo(() => {
+    let result = [...shops];
+
+    // Search filter.
+    if (shopSearch.trim()) {
+      const q = shopSearch.toLowerCase();
+      result = result.filter(
+        (s) => s.name.toLowerCase().includes(q) || s.address.toLowerCase().includes(q),
+      );
+    }
+
+    // Location filter.
+    if (shopLocationFilter) {
+      result = result.filter((s) =>
+        s.address.toLowerCase().includes(shopLocationFilter.toLowerCase()),
+      );
+    }
+
+    // Sort by total amount.
+    if (shopSortOrder === "lowest" || shopSortOrder === "highest") {
+      result.sort((a, b) => {
+        const totalA = calculateOrderPrice(a, docs, config, fulfillment).total;
+        const totalB = calculateOrderPrice(b, docs, config, fulfillment).total;
+        return shopSortOrder === "lowest" ? totalA - totalB : totalB - totalA;
+      });
+    }
+
+    return result;
+  }, [shops, shopSearch, shopLocationFilter, shopSortOrder, docs, config, fulfillment]);
+
+  const handleShopScroll = () => {
+    // Scroll handler for future enhancements (e.g., updating active dot on scroll).
+  };
 
   const addFiles = async (incoming: File[]) => {
     if (!incoming.length) return;
@@ -751,6 +809,20 @@ function OrderPage() {
     void addFiles(transferredFiles);
     // A pending upload is deliberately transient and consumed once on arrival from Home.
   }, [pendingUploadFiles, consumePendingUploadFiles]);
+
+  // Sync docs to store so they persist across navigation/remounts.
+  useEffect(() => {
+    setPendingDocs(docs);
+  }, [docs, setPendingDocs]);
+
+  // Sync uploaded file names so the Upload Document Card can restore its success state.
+  useEffect(() => {
+    const names = docs.map((d) => d.name);
+    const prev = uploadedFileNames;
+    if (names.length !== prev.length || names.some((n, i) => n !== prev[i])) {
+      setUploadedFileNames(names);
+    }
+  }, [docs, uploadedFileNames, setUploadedFileNames]);
 
   const selectShop = (nextShopId: string) => {
     const nextShop = shops.find((candidate) => candidate.id === nextShopId);
@@ -865,6 +937,8 @@ function OrderPage() {
       timeline: [{ status: "NEW", at: now }],
     };
     placeOrder(order);
+    clearPendingDocs();
+    setUploadedFileNames([]);
     setPlaced(order);
     toast.success("Order placed", { description: `${order.id} sent to ${shop.name}` });
   };
@@ -899,8 +973,8 @@ function OrderPage() {
               <Link to="/orders/$orderId" params={{ orderId: placed.id }}>
                 <Button className="w-full">Track this order</Button>
               </Link>
-              <Button variant="outline" onClick={() => navigate({ to: "/orders" })}>
-                Go to my orders
+              <Button variant="outline" onClick={() => navigate({ to: "/" })}>
+                Go to Home
               </Button>
             </div>
           </div>
@@ -912,7 +986,7 @@ function OrderPage() {
   return (
     <CustomerShell>
       <div className="container-page py-8 md:py-5">
-        {/* <h1 className="text-page-title font-bold">XEROXIFY</h1> */}
+        {/* <h1 className="text-page-title font-bold">XEROXMATE</h1> */}
         {/* <p className="mt-2 text-sm text-muted-foreground">
           Step {step + 1} of {STEP_TITLES.length} — {STEP_TITLES[step]}
         </p>
@@ -942,6 +1016,7 @@ function OrderPage() {
                         setUploadedFiles({});
                         setActiveDocumentId(null);
                       }}
+                      initialFileNames={uploadedFileNames}
                       className="p-0 shadow-none"
                     />
                   </SectionCard>
@@ -1056,55 +1131,118 @@ function OrderPage() {
                 title="Select Nearby print shops to Continue"
                 hint="Prices update instantly based on the shop you pick."
               >
-                <div className="space-y-3 overflow-y-scroll  md:max-h-[45vh] scrollbar-hide">
-                  {shops.map((s) => {
-                    const active = shopConfirmed && s.id === shopId;
-                    const availability = shopAvailability(s);
-                    const shopTotal = calculateOrderPrice(s, docs, config, fulfillment).total;
-                    return (
-                      <button
+                {/* Search + Filters */}
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <input
+                    type="text"
+                    placeholder="Search shops..."
+                    value={shopSearch}
+                    onChange={(e) => setShopSearch(e.target.value)}
+                    className="h-9 flex-1 rounded-md border border-border bg-card px-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+                  />
+                  <select
+                    value={shopLocationFilter}
+                    onChange={(e) => setShopLocationFilter(e.target.value)}
+                    className="h-9 rounded-md border border-border bg-card px-3 text-sm focus:border-primary focus:outline-none"
+                  >
+                    <option value="">Location</option>
+                    {shopLocations.map((loc) => (
+                      <option key={loc} value={loc}>
+                        {loc}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={shopSortOrder}
+                    onChange={(e) => setShopSortOrder(e.target.value)}
+                    className="h-9 rounded-md border border-border bg-card px-3 text-sm focus:border-primary focus:outline-none"
+                  >
+                    <option value="">Lowest total amount</option>
+                    <option value="lowest">Lowest first</option>
+                    <option value="highest">Highest first</option>
+                  </select>
+                </div>
+
+                {/* Shop cards with vertical dots */}
+                <div
+                  className="flex gap-3"
+                  style={{ maxHeight: "calc(100vh - 320px)", minHeight: "300px" }}
+                >
+                  {/* Vertical dots indicator */}
+                  <div className="hidden w-5 shrink-0 flex-col items-center gap-2 pt-2 sm:flex">
+                    {filteredSortedShops.map((s) => (
+                      <span
                         key={s.id}
-                        type="button"
-                        onClick={() => selectShop(s.id)}
                         className={cn(
-                          "w-full rounded-lg border p-4 text-left transition-colors",
-                          active
-                            ? "border-primary bg-primary-light"
-                            : "border-border bg-card hover:bg-secondary",
+                          "block h-2 w-2 shrink-0 rounded-full transition-colors",
+                          s.id === shopId ? "bg-primary" : "bg-border",
                         )}
-                      >
-                        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:gap-4">
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold">{s.name}</p>
-                            <p className="mt-1 text-xs text-muted-foreground">{s.address}</p>
-                            <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                              <span className="inline-flex items-center gap-1 rounded-md bg-card px-2 py-1 font-medium">
-                                ★ {s.rating}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Shop cards */}
+                  <div
+                    ref={shopScrollRef}
+                    className="flex-1 space-y-3 overflow-y-auto scrollbar-hide"
+                    onScroll={handleShopScroll}
+                  >
+                    {filteredSortedShops.length === 0 && (
+                      <p className="py-8 text-center text-sm text-muted-foreground">
+                        No shops match your search.
+                      </p>
+                    )}
+                    {filteredSortedShops.map((s) => {
+                      const active = shopConfirmed && s.id === shopId;
+                      const availability = shopAvailability(s);
+                      const shopTotal = calculateOrderPrice(s, docs, config, fulfillment).total;
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => selectShop(s.id)}
+                          className={cn(
+                            "w-full rounded-lg border p-4 text-left transition-colors",
+                            active
+                              ? "border-primary bg-primary-light"
+                              : "border-border bg-card hover:bg-secondary",
+                          )}
+                        >
+                          <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:gap-4">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-semibold">{s.name}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{s.address}</p>
+                              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                                <span className="inline-flex items-center gap-1 rounded-md bg-card px-2 py-1 font-medium">
+                                  ★ {s.rating}
+                                </span>
+                                <span className="rounded-md bg-card px-2 py-1 font-medium">
+                                  {s.delivery.enabled ? "Pickup + Delivery" : "Pickup only"}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 flex-col items-start gap-1.5 sm:items-end">
+                              <span
+                                className={cn(
+                                  "rounded-full px-2.5 py-1 text-xs font-semibold",
+                                  availability.open
+                                    ? "bg-success-light text-success"
+                                    : "bg-destructive/10 text-destructive",
+                                )}
+                              >
+                                {availability.label}
                               </span>
-                              <span className="rounded-md bg-card px-2 py-1 font-medium">
-                                {s.delivery.enabled ? "Pickup + Delivery" : "Pickup only"}
+                              <span className="mt-1 inline-block rounded-md border border-border bg-secondary px-2 py-1 text-sm font-semibold text-foreground">
+                                Total Amount : {inr(shopTotal)}
                               </span>
                             </div>
                           </div>
-                          <div className="flex shrink-0 flex-col items-start gap-1.5 sm:items-end">
-                            <span
-                              className={cn(
-                                "rounded-full px-2.5 py-1 text-xs font-semibold",
-                                availability.open
-                                  ? "bg-success-light text-success"
-                                  : "bg-destructive/10 text-destructive",
-                              )}
-                            >
-                              {availability.label}
-                            </span>
-                            <p className="text-xs text-muted-foreground">{s.hours}</p>
-                            <p className="text-lg font-bold text-foreground">{inr(shopTotal)}</p>
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
+
                 <div className="mt-5 border-t border-border pt-5">
                   <Button variant="outline" onClick={() => setStep(0)}>
                     <ChevronLeft className="h-4 w-4" /> Back
@@ -1138,12 +1276,7 @@ function OrderPage() {
                   >
                     <StoreIcon className="h-5 w-5 text-primary" />
                     <p className="mt-3 sm:mt-0 text-sm font-semibold">Pickup at shop</p>
-                    {/* <p className="mt-1 text-xs text-muted-foreground">
-                      Collect during{" "}
-                      {shop.openingTime && shop.closingTime
-                        ? `${shop.openingTime}–${shop.closingTime}`
-                        : shop.hours}
-                    </p> */}
+                    <p className="text-xs text-muted-foreground">{shop.hours}</p>
                   </button>
                   <button
                     type="button"
@@ -1159,15 +1292,15 @@ function OrderPage() {
                   >
                     <Truck className="h-5 w-5 text-primary" />
                     <p className="mt-3 sm:mt-0 text-sm font-semibold">Home delivery</p>
-                    {/* <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       {shop.delivery.enabled
-                        ? `${shop.delivery.etaMinutes} · ${inr(shop.delivery.fee)} fee${
+                        ? `2 to 4 hours · ${inr(shop.delivery.fee)} fee${
                             shop.delivery.freeAbove
                               ? ` (free above ${inr(shop.delivery.freeAbove)})`
                               : ""
                           }`
                         : "This shop does not deliver"}
-                    </p> */}
+                    </p>
                   </button>
                 </div>
                 {fulfillment === "delivery" && (
@@ -1314,7 +1447,7 @@ function OrderPage() {
                     </div>
                   </SectionCard>
 
-                  <div className="md:card-surface p-5 md:px-6 md:py-4">
+                  <div className="md:card-surface p-5 md:px-6 md:py-4 flex flex-col gap-2">
                     <h2 className="text-base font-semibold">Print shop</h2>
                     <p className="mt-3 inline-flex items-center gap-2 text-sm font-medium">
                       <StoreIcon className="h-4 w-4 text-primary" /> {shop.name}
@@ -1396,7 +1529,7 @@ function OrderPage() {
                             `${docs.length} file(s) · ${docs.reduce((s, d) => s + d.pages, 0)} pages`,
                           ],
                           [
-                            "Fulfilment",
+                            "Delivery Option",
                             fulfillment === "pickup" ? "Pickup at shop" : "Home delivery",
                           ],
                           [
@@ -1425,13 +1558,41 @@ function OrderPage() {
                         <span className="font-medium">{inr(price.delivery)}</span>
                       </div>
                       <div className="mt-3 flex justify-between border-t border-border pt-3 text-base font-bold">
-                        <span>Total payable</span>
+                        <span>Total</span>
                         <span>{inr(price.total)}</span>
                       </div>
-                      <div className="mt-2 flex justify-between text-xs text-muted-foreground">
-                        <span>Pay now</span>
-                        <span>{inr(split.paidNow)}</span>
-                      </div>
+                      {method === "advance" && (
+                        <>
+                          <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+                            <span>Pay Advance now</span>
+                            <span>{inr(split.paidNow)}</span>
+                          </div>
+                          <div className="mt-1 flex justify-between text-xs text-muted-foreground">
+                            <span>
+                              Remaining on {fulfillment === "pickup" ? "pickup" : "delivery"}
+                            </span>
+                            <span>{inr(split.balance)}</span>
+                          </div>
+                        </>
+                      )}
+                      {method === "cash_pickup" && (
+                        <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+                          <span>Pay at pickup</span>
+                          <span>{inr(price.total)}</span>
+                        </div>
+                      )}
+                      {method === "cash_delivery" && (
+                        <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+                          <span>Pay on delivery</span>
+                          <span>{inr(price.total)}</span>
+                        </div>
+                      )}
+                      {method === "full" && (
+                        <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+                          <span>Paid in full</span>
+                          <span>{inr(price.total)}</span>
+                        </div>
+                      )}
                     </div>
                     <div className="mt-5 flex items-center justify-between gap-3 border-t border-border pt-5">
                       <Button variant="outline" onClick={() => setStep(1)}>

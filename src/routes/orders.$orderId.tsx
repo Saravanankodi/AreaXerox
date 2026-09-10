@@ -11,13 +11,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/orders/$orderId")({
   head: () => ({
     meta: [
-      { title: "Order Details — XEROXIFY" },
+      { title: "Order Details — XEROXMATE" },
       {
         name: "description",
         content:
           "Live timeline, print specification, payment breakdown and shop details for your order.",
       },
-      { property: "og:title", content: "Order Details — XEROXIFY" },
+      { property: "og:title", content: "Order Details — XEROXMATE" },
       { property: "og:description", content: "Follow your print order step by step." },
     ],
   }),
@@ -196,7 +196,7 @@ function OrderDetail() {
                         ? additionalOptions.map((a) => a.name).join(", ")
                         : "None",
                     ],
-                    ["Fulfilment", fulfillmentLabel[order.fulfillment]],
+                    ["Delivery Option", fulfillmentLabel[order.fulfillment]],
                   ];
                   return (
                     <div

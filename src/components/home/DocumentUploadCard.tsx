@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, FileText, LoaderCircle, Trash2, Upload, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -14,17 +14,31 @@ export function DocumentUploadCard({
   multiple = false,
   onFilesSelected,
   onFilesRemoved,
+  initialFileNames,
   className,
 }: {
   multiple?: boolean | undefined;
   onFilesSelected?: ((files: File[]) => void | Promise<void>) | undefined;
   onFilesRemoved?: (() => void) | undefined;
+  initialFileNames?: string[] | undefined;
   className?: string | undefined;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<UploadState>("idle");
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState("");
+  const hasRestoredRef = useRef(false);
+
+  useEffect(() => {
+    if (hasRestoredRef.current) return;
+    if (initialFileNames && initialFileNames.length > 0) {
+      hasRestoredRef.current = true;
+      setFiles(
+        initialFileNames.map((name, i) => new File([], name, { lastModified: Date.now() + i })),
+      );
+      setState("success");
+    }
+  }, [initialFileNames]);
   const clearUploadedFiles = () => {
     setState("idle");
     setFiles([]);

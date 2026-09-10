@@ -10,12 +10,12 @@ import { Label } from "@/components/ui/label";
 export const Route = createFileRoute("/settings")({
   head: () => ({
     meta: [
-      { title: "Account Settings — XEROXIFY" },
+      { title: "Account Settings — XEROXMATE" },
       {
         name: "description",
         content: "Control order notifications, privacy of your uploaded files and account preferences.",
       },
-      { property: "og:title", content: "Account Settings — XEROXIFY" },
+      { property: "og:title", content: "Account Settings — XEROXMATE" },
       { property: "og:description", content: "Notification and privacy preferences." },
     ],
   }),

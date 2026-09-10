@@ -81,13 +81,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "XEROXIFY — Print Smarter, Skip the Queue" },
+      { title: "XEROXMATE — Print Smarter, Skip the Queue" },
       {
         name: "description",
         content:
           "Upload documents, customise your printing, choose a nearby print shop and pick up or get delivery — all online.",
       },
-      { property: "og:title", content: "XEROXIFY" },
+      { property: "og:title", content: "XEROXMATE" },
       {
         property: "og:description",
         content: "Online printing orders with pickup or delivery from nearby print shops.",

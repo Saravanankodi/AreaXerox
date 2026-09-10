@@ -1,10 +1,10 @@
 export async function shareDocumentsViaWhatsApp(
   files: File[],
   shopWhatsappNumber?: string,
-  message = "I’m preparing a print order with XEROXIFY.",
+  message = "I’m preparing a print order with XEROXMATE.",
 ) {
   const text = message;
-  const shareData = { title: "XEROXIFY", text, files };
+  const shareData = { title: "XEROXMATE", text, files };
   if (
     files.length > 0 &&
     navigator.share &&

@@ -25,12 +25,12 @@
 // export const Route = createFileRoute("/support")({
 //   head: () => ({
 //     meta: [
-//       { title: "Help & Support — XEROXIFY" },
+//       { title: "Help & Support — XEROXMATE" },
 //       {
 //         name: "description",
 //         content: "Raise a support ticket about an order, payment or delivery, or read common answers.",
 //       },
-//       { property: "og:title", content: "Help & Support — XEROXIFY" },
+//       { property: "og:title", content: "Help & Support — XEROXMATE" },
 //       { property: "og:description", content: "Get help with your print orders." },
 //     ],
 //   }),
@@ -235,12 +235,12 @@ import { useStore } from "@/lib/store";
 export const Route = createFileRoute("/support")({
   head: () => ({
     meta: [
-      { title: "Help & Support — XEROXIFY" },
+      { title: "Help & Support — XEROXMATE" },
       {
         name: "description",
         content: "Raise a support ticket about an order, payment or delivery, or read common answers.",
       },
-      { property: "og:title", content: "Help & Support — XEROXIFY" },
+      { property: "og:title", content: "Help & Support — XEROXMATE" },
       { property: "og:description", content: "Get help with your print orders." },
     ],
   }),

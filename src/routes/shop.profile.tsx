@@ -11,13 +11,13 @@ import { useStore } from "@/lib/store";
 export const Route = createFileRoute("/shop/profile")({
   head: () => ({
     meta: [
-      { title: "Shop Profile — XEROXIFY Shop" },
+      { title: "Shop Profile — XEROXMATE Shop" },
       {
         name: "description",
         content:
           "Update your shop name, contact details, working hours, pickup availability and delivery areas.",
       },
-      { property: "og:title", content: "Shop Profile — XEROXIFY Shop" },
+      { property: "og:title", content: "Shop Profile — XEROXMATE Shop" },
       { property: "og:description", content: "How customers see your print shop." },
     ],
   }),

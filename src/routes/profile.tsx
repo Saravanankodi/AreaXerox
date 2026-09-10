@@ -12,12 +12,12 @@ import type { Address } from "@/types";
 export const Route = createFileRoute("/profile")({
   head: () => ({
     meta: [
-      { title: "My Profile & Addresses — XEROXIFY" },
+      { title: "My Profile & Addresses — XEROXMATE" },
       {
         name: "description",
         content: "Manage your name, phone, email and saved delivery addresses for faster printing.",
       },
-      { property: "og:title", content: "My Profile & Addresses — XEROXIFY" },
+      { property: "og:title", content: "My Profile & Addresses — XEROXMATE" },
       { property: "og:description", content: "Your printing account details and addresses." },
     ],
   }),

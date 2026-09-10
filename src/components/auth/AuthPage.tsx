@@ -52,13 +52,13 @@ export function AuthPage({ role, mode }: { role: AccountRole; mode: "login" | "s
     <main className="grid min-h-screen bg-background lg:grid-cols-2">
       <section className="hidden bg-cover bg-center bg-no-repeat p-12 text-primary-foreground lg:flex lg:flex-col lg:justify-between"
         style={{ backgroundImage: "url('/loginimage.png')" }} >
-        {/* <Link to="/" className="flex items-center gap-2 font-bold"><span className="flex h-10 w-10 items-center justify-center rounded-md bg-white/15"><Printer className="h-5 w-5" /></span>XEROXIFY</Link>
+        {/* <Link to="/" className="flex items-center gap-2 font-bold"><span className="flex h-10 w-10 items-center justify-center rounded-md bg-white/15"><Printer className="h-5 w-5" /></span>XEROXMATE</Link>
         <div className="max-w-md"><span className="inline-flex items-center gap-2 text-sm font-semibold opacity-85">{isShop ? <Store className="h-4 w-4" /> : <UserRound className="h-4 w-4" />}{isShop ? "For print businesses" : "For customers"}</span><h1 className="mt-4 text-4xl font-bold tracking-tight">{isShop ? "Run every print job from one calm workspace." : "Send your print job before you leave home."}</h1><p className="mt-4 text-base opacity-85">{isShop ? "Receive, price, print and complete orders with a clear live queue." : "Upload documents, choose a shop, pay securely and track the job live."}</p></div>
         <p className="inline-flex items-center gap-2 text-sm opacity-80"><ShieldCheck className="h-4 w-4" /> Your account details stay private.</p> */}
       </section>
       <section className="flex items-center justify-center px-5 py-10 sm:px-8">
         <div className="w-full max-w-md">
-          <Link to="/" className="flex items-center gap-2 font-bold lg:hidden"><span className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground"><Printer className="h-5 w-5" /></span>XEROXIFY</Link>
+          <Link to="/" className="flex items-center gap-2 font-bold lg:hidden"><span className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground"><Printer className="h-5 w-5" /></span>XEROXMATE</Link>
           <p className="mt-10 text-sm font-semibold text-primary">{isShop ? "SHOPKEEPER PORTAL" : "CUSTOMER ACCOUNT"}</p>
           <h1 className="mt-2 text-3xl font-bold">{isCreate ? "Create your account" : "Welcome back"}</h1>
           <p className="mt-2 text-sm text-muted-foreground">{isCreate ? "A few details and you’re ready to go." : "Sign in to continue where you left off."}</p>

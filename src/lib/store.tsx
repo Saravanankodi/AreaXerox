@@ -8,7 +8,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { Address, CustomerProfile, Order, OrderStatus, Shop, SupportTicket } from "@/types";
+import type {
+  Address,
+  CustomerProfile,
+  DocumentFile,
+  Order,
+  OrderStatus,
+  Shop,
+  SupportTicket,
+} from "@/types";
 import { seedAddresses, seedOrders, seedProfile, seedShops } from "./seed";
 
 const STORAGE_KEY = "omx-state-v1";
@@ -20,6 +28,8 @@ interface AppState {
   profile: CustomerProfile;
   tickets: SupportTicket[];
   activeShopId: string;
+  pendingDocs: DocumentFile[];
+  uploadedFileNames: string[];
 }
 
 const initialState: AppState = {
@@ -29,6 +39,8 @@ const initialState: AppState = {
   profile: seedProfile,
   tickets: [],
   activeShopId: seedShops[0]!.id,
+  pendingDocs: [],
+  uploadedFileNames: [],
 };
 
 interface StoreValue extends AppState {
@@ -42,6 +54,9 @@ interface StoreValue extends AppState {
   deleteAddress: (id: string) => void;
   updateProfile: (profile: CustomerProfile) => void;
   addTicket: (ticket: SupportTicket) => void;
+  setPendingDocs: (docs: DocumentFile[]) => void;
+  clearPendingDocs: () => void;
+  setUploadedFileNames: (names: string[]) => void;
   pendingUploadFiles: File[];
   setPendingUploadFiles: (files: File[]) => void;
   consumePendingUploadFiles: () => File[];
@@ -136,6 +151,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, tickets: [ticket, ...s.tickets] }));
   }, []);
 
+  const setPendingDocs = useCallback((docs: DocumentFile[]) => {
+    setState((s) => ({ ...s, pendingDocs: docs }));
+  }, []);
+
+  const clearPendingDocs = useCallback(() => {
+    setState((s) => ({ ...s, pendingDocs: [] }));
+  }, []);
+
+  const setUploadedFileNames = useCallback((names: string[]) => {
+    setState((s) => ({ ...s, uploadedFileNames: names }));
+  }, []);
+
   const setPendingUploadFiles = useCallback((files: File[]) => {
     pendingUploadFilesRef.current = files;
     setPendingUploadFilesState(files);
@@ -161,6 +188,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       deleteAddress,
       updateProfile,
       addTicket,
+      setPendingDocs,
+      clearPendingDocs,
+      setUploadedFileNames,
       pendingUploadFiles,
       setPendingUploadFiles,
       consumePendingUploadFiles,
@@ -176,6 +206,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       deleteAddress,
       updateProfile,
       addTicket,
+      setPendingDocs,
+      clearPendingDocs,
+      setUploadedFileNames,
       pendingUploadFiles,
       setPendingUploadFiles,
       consumePendingUploadFiles,
