@@ -13,6 +13,7 @@ import type {
   CustomerProfile,
   DocumentFile,
   Order,
+  OrderDraft,
   OrderStatus,
   Shop,
   SupportTicket,
@@ -30,6 +31,7 @@ interface AppState {
   activeShopId: string;
   pendingDocs: DocumentFile[];
   uploadedFileNames: string[];
+  orderDraft: OrderDraft | null;
 }
 
 const initialState: AppState = {
@@ -41,6 +43,7 @@ const initialState: AppState = {
   activeShopId: seedShops[0]!.id,
   pendingDocs: [],
   uploadedFileNames: [],
+  orderDraft: null,
 };
 
 interface StoreValue extends AppState {
@@ -60,6 +63,10 @@ interface StoreValue extends AppState {
   pendingUploadFiles: File[];
   setPendingUploadFiles: (files: File[]) => void;
   consumePendingUploadFiles: () => File[];
+  saveOrderDraft: (draft: OrderDraft) => void;
+  clearOrderDraft: () => void;
+  cacheFile: (id: string, file: File) => void;
+  getCachedFile: (id: string) => File | undefined;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -68,12 +75,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(initialState);
   const [pendingUploadFiles, setPendingUploadFilesState] = useState<File[]>([]);
   const pendingUploadFilesRef = useRef<File[]>([]);
+  const uploadedFilesMapRef = useRef<Map<string, File>>(new Map());
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setState({ ...initialState, ...(JSON.parse(raw) as AppState) });
+      if (raw) {
+        const saved = JSON.parse(raw) as AppState;
+        // Merge shops: seed is the source of truth for the list; user modifications are preserved.
+        const savedById = new Map(saved.shops.map((s) => [s.id, s]));
+        const merged = initialState.shops.map((seed) => savedById.get(seed.id) ?? seed);
+        setState({ ...initialState, ...saved, shops: merged });
+      }
     } catch {
       /* ignore corrupt state */
     }
@@ -97,7 +111,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const placeOrder = useCallback((order: Order) => {
-    setState((s) => ({ ...s, orders: [order, ...s.orders] }));
+    setState((s) => ({ ...s, orders: [order, ...s.orders], orderDraft: null }));
   }, []);
 
   const advanceOrder = useCallback((orderId: string, status: OrderStatus) => {
@@ -163,6 +177,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, uploadedFileNames: names }));
   }, []);
 
+  const saveOrderDraft = useCallback((draft: OrderDraft) => {
+    setState((s) => ({ ...s, orderDraft: draft }));
+  }, []);
+
+  const clearOrderDraft = useCallback(() => {
+    setState((s) => ({ ...s, orderDraft: null }));
+  }, []);
+
   const setPendingUploadFiles = useCallback((files: File[]) => {
     pendingUploadFilesRef.current = files;
     setPendingUploadFilesState(files);
@@ -173,6 +195,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     pendingUploadFilesRef.current = [];
     setPendingUploadFilesState([]);
     return files;
+  }, []);
+
+  const cacheFile = useCallback((id: string, file: File) => {
+    uploadedFilesMapRef.current.set(id, file);
+  }, []);
+
+  const getCachedFile = useCallback((id: string) => {
+    return uploadedFilesMapRef.current.get(id);
   }, []);
 
   const value = useMemo<StoreValue>(
@@ -194,6 +224,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       pendingUploadFiles,
       setPendingUploadFiles,
       consumePendingUploadFiles,
+      saveOrderDraft,
+      clearOrderDraft,
+      cacheFile,
+      getCachedFile,
     }),
     [
       state,
@@ -212,6 +246,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       pendingUploadFiles,
       setPendingUploadFiles,
       consumePendingUploadFiles,
+      saveOrderDraft,
+      clearOrderDraft,
+      cacheFile,
+      getCachedFile,
     ],
   );
 

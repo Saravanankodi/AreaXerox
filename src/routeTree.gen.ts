@@ -14,6 +14,7 @@ import { Route as OrderRouteImport } from './routes/order'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SupportRouteImport } from './routes/support'
+import { Route as OrderConfirmationOrderIdRouteImport } from './routes/order-confirmation.$orderId'
 import { Route as OrdersIndexRouteImport } from './routes/orders.index'
 import { Route as OrdersOrderIdRouteImport } from './routes/orders.$orderId'
 import { Route as ShopIndexRouteImport } from './routes/shop.index'
@@ -25,6 +26,7 @@ import { Route as AuthCustomerCreateAccountRouteImport } from './routes/auth.cus
 import { Route as AuthCustomerLoginRouteImport } from './routes/auth.customer.login'
 import { Route as AuthShopCreateAccountRouteImport } from './routes/auth.shop.create-account'
 import { Route as AuthShopLoginRouteImport } from './routes/auth.shop.login'
+import { Route as ShopOrdersOrderIdRouteImport } from './routes/shop.orders.$orderId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -51,6 +53,12 @@ const SupportRoute = SupportRouteImport.update({
   path: '/support',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OrderConfirmationOrderIdRoute =
+  OrderConfirmationOrderIdRouteImport.update({
+    id: '/order-confirmation/$orderId',
+    path: '/order-confirmation/$orderId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const OrdersIndexRoute = OrdersIndexRouteImport.update({
   id: '/orders/',
   path: '/orders/',
@@ -107,6 +115,11 @@ const AuthShopLoginRoute = AuthShopLoginRouteImport.update({
   path: '/auth/shop/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ShopOrdersOrderIdRoute = ShopOrdersOrderIdRouteImport.update({
+  id: '/$orderId',
+  path: '/$orderId',
+  getParentRoute: () => ShopOrdersRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -114,8 +127,9 @@ export interface FileRoutesByFullPath {
   '/profile': typeof ProfileRoute
   '/settings': typeof SettingsRoute
   '/support': typeof SupportRoute
+  '/order-confirmation/$orderId': typeof OrderConfirmationOrderIdRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
-  '/shop/orders': typeof ShopOrdersRoute
+  '/shop/orders': typeof ShopOrdersRouteWithChildren
   '/shop/profile': typeof ShopProfileRoute
   '/shop/services': typeof ShopServicesRoute
   '/shop/settings': typeof ShopSettingsRoute
@@ -125,6 +139,7 @@ export interface FileRoutesByFullPath {
   '/auth/customer/login': typeof AuthCustomerLoginRoute
   '/auth/shop/create-account': typeof AuthShopCreateAccountRoute
   '/auth/shop/login': typeof AuthShopLoginRoute
+  '/shop/orders/$orderId': typeof ShopOrdersOrderIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -132,8 +147,9 @@ export interface FileRoutesByTo {
   '/profile': typeof ProfileRoute
   '/settings': typeof SettingsRoute
   '/support': typeof SupportRoute
+  '/order-confirmation/$orderId': typeof OrderConfirmationOrderIdRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
-  '/shop/orders': typeof ShopOrdersRoute
+  '/shop/orders': typeof ShopOrdersRouteWithChildren
   '/shop/profile': typeof ShopProfileRoute
   '/shop/services': typeof ShopServicesRoute
   '/shop/settings': typeof ShopSettingsRoute
@@ -143,6 +159,7 @@ export interface FileRoutesByTo {
   '/auth/customer/login': typeof AuthCustomerLoginRoute
   '/auth/shop/create-account': typeof AuthShopCreateAccountRoute
   '/auth/shop/login': typeof AuthShopLoginRoute
+  '/shop/orders/$orderId': typeof ShopOrdersOrderIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -151,8 +168,9 @@ export interface FileRoutesById {
   '/profile': typeof ProfileRoute
   '/settings': typeof SettingsRoute
   '/support': typeof SupportRoute
+  '/order-confirmation/$orderId': typeof OrderConfirmationOrderIdRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
-  '/shop/orders': typeof ShopOrdersRoute
+  '/shop/orders': typeof ShopOrdersRouteWithChildren
   '/shop/profile': typeof ShopProfileRoute
   '/shop/services': typeof ShopServicesRoute
   '/shop/settings': typeof ShopSettingsRoute
@@ -162,6 +180,7 @@ export interface FileRoutesById {
   '/auth/customer/login': typeof AuthCustomerLoginRoute
   '/auth/shop/create-account': typeof AuthShopCreateAccountRoute
   '/auth/shop/login': typeof AuthShopLoginRoute
+  '/shop/orders/$orderId': typeof ShopOrdersOrderIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -171,6 +190,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/settings'
     | '/support'
+    | '/order-confirmation/$orderId'
     | '/orders/$orderId'
     | '/shop/orders'
     | '/shop/profile'
@@ -182,6 +202,7 @@ export interface FileRouteTypes {
     | '/auth/customer/login'
     | '/auth/shop/create-account'
     | '/auth/shop/login'
+    | '/shop/orders/$orderId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -189,6 +210,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/settings'
     | '/support'
+    | '/order-confirmation/$orderId'
     | '/orders/$orderId'
     | '/shop/orders'
     | '/shop/profile'
@@ -200,6 +222,7 @@ export interface FileRouteTypes {
     | '/auth/customer/login'
     | '/auth/shop/create-account'
     | '/auth/shop/login'
+    | '/shop/orders/$orderId'
   id:
     | '__root__'
     | '/'
@@ -207,6 +230,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/settings'
     | '/support'
+    | '/order-confirmation/$orderId'
     | '/orders/$orderId'
     | '/shop/orders'
     | '/shop/profile'
@@ -218,6 +242,7 @@ export interface FileRouteTypes {
     | '/auth/customer/login'
     | '/auth/shop/create-account'
     | '/auth/shop/login'
+    | '/shop/orders/$orderId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -226,8 +251,9 @@ export interface RootRouteChildren {
   ProfileRoute: typeof ProfileRoute
   SettingsRoute: typeof SettingsRoute
   SupportRoute: typeof SupportRoute
+  OrderConfirmationOrderIdRoute: typeof OrderConfirmationOrderIdRoute
   OrdersOrderIdRoute: typeof OrdersOrderIdRoute
-  ShopOrdersRoute: typeof ShopOrdersRoute
+  ShopOrdersRoute: typeof ShopOrdersRouteWithChildren
   ShopProfileRoute: typeof ShopProfileRoute
   ShopServicesRoute: typeof ShopServicesRoute
   ShopSettingsRoute: typeof ShopSettingsRoute
@@ -274,6 +300,13 @@ declare module '@tanstack/react-router' {
       path: '/support'
       fullPath: '/support'
       preLoaderRoute: typeof SupportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/order-confirmation/$orderId': {
+      id: '/order-confirmation/$orderId'
+      path: '/order-confirmation/$orderId'
+      fullPath: '/order-confirmation/$orderId'
+      preLoaderRoute: typeof OrderConfirmationOrderIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/orders/': {
@@ -353,8 +386,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthShopLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/shop/orders/$orderId': {
+      id: '/shop/orders/$orderId'
+      path: '/$orderId'
+      fullPath: '/shop/orders/$orderId'
+      preLoaderRoute: typeof ShopOrdersOrderIdRouteImport
+      parentRoute: typeof ShopOrdersRoute
+    }
   }
 }
+
+interface ShopOrdersRouteChildren {
+  ShopOrdersOrderIdRoute: typeof ShopOrdersOrderIdRoute
+}
+
+const ShopOrdersRouteChildren: ShopOrdersRouteChildren = {
+  ShopOrdersOrderIdRoute: ShopOrdersOrderIdRoute,
+}
+
+const ShopOrdersRouteWithChildren = ShopOrdersRoute._addFileChildren(
+  ShopOrdersRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -362,8 +414,9 @@ const rootRouteChildren: RootRouteChildren = {
   ProfileRoute: ProfileRoute,
   SettingsRoute: SettingsRoute,
   SupportRoute: SupportRoute,
+  OrderConfirmationOrderIdRoute: OrderConfirmationOrderIdRoute,
   OrdersOrderIdRoute: OrdersOrderIdRoute,
-  ShopOrdersRoute: ShopOrdersRoute,
+  ShopOrdersRoute: ShopOrdersRouteWithChildren,
   ShopProfileRoute: ShopProfileRoute,
   ShopServicesRoute: ShopServicesRoute,
   ShopSettingsRoute: ShopSettingsRoute,

@@ -36,7 +36,9 @@ function ShopServices() {
       title="Print Services"
       subtitle="Everything you switch off here disappears from the customer ordering flow instantly."
     >
+
       <div className="space-y-6">
+        <div className="grid gap-6 lg:grid-cols-2">
         <div className="card-surface p-5 md:p-6">
           <h2 className="text-base font-semibold">Paper types & pricing</h2>
           <p className="mt-1 text-sm text-muted-foreground">Prices are per page.</p>
@@ -106,8 +108,8 @@ function ShopServices() {
           </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="card-surface p-5 md:p-6">
+       
+          {/* <div className="card-surface p-5 md:p-6">
             <h2 className="text-base font-semibold">Print capabilities</h2>
             <div className="mt-4 divide-y divide-border">
               {(
@@ -129,11 +131,11 @@ function ShopServices() {
                 </div>
               ))}
             </div>
-          </div>
+          </div> */}
 
-          <div className="card-surface p-5 md:p-6">
+          <div className="card-surface p-5 md:p-6 md:sticky md:top-6 md:self-start ">
             <h2 className="text-base font-semibold">Binding & finishing</h2>
-            <div className="mt-4 space-y-3">
+            <div className="mt-6 space-y-5">
               {shop.binding.map((b) => (
                 <div key={b.id} className="flex items-center gap-3 rounded-lg border border-border p-3">
                   <Switch

@@ -63,12 +63,12 @@ export interface Shop {
   whatsappNumber?: string;
   email: string;
   address: string;
-  hours: string;
+  workingDaysFrom: string;
+  workingDaysTo: string;
   openingTime?: string;
   closingTime?: string;
   rating: number;
   distanceKm: number;
-  prepMinutes: number;
   pickup: boolean;
   paperTypes: PaperType[];
   printTypes: { bw: boolean; color: boolean };
@@ -178,4 +178,15 @@ export interface CustomerProfile {
   email: string;
   phone: string;
   alternatephone?: string;
+}
+
+export interface OrderDraft {
+  step: number;
+  docs: DocumentFile[];
+  config: PrintConfig;
+  shopId: string;
+  fulfillment: Fulfillment;
+  addressId: string | null;
+  method: PaymentMethod;
+  notes: string;
 }

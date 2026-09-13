@@ -1,12 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, Check, Clock, FileText, MapPin, Phone, Store } from "lucide-react";
+import { ArrowLeft, Clock, Download, Eye, FileText, MapPin, Phone, Store } from "lucide-react";
 import { CustomerShell } from "@/components/layout/CustomerShell";
 import { Button } from "@/components/ui/button";
+import { OrderTimeline } from "@/components/OrderTimeline";
 import { PaymentBadge, StatusBadge } from "@/components/StatusBadge";
 import { useStore } from "@/lib/store";
 import { calculateDocumentPrices, inr } from "@/lib/pricing";
-import { customerStatusCopy, fulfillmentLabel, orderStatusLabel, statusFlow } from "@/lib/labels";
-import { cn } from "@/lib/utils";
+import { customerStatusCopy, fulfillmentLabel } from "@/lib/labels";
 
 export const Route = createFileRoute("/orders/$orderId")({
   head: () => ({
@@ -47,9 +47,6 @@ function OrderDetail() {
   }
 
   const shop = shops.find((s) => s.id === order.shopId);
-  const flow = statusFlow(order.fulfillment);
-  const currentIndex = flow.indexOf(order.status);
-  const reached = (s: string) => order.timeline.some((t) => t.status === s);
   const docPrices = shop ? calculateDocumentPrices(shop, order.documents, order.config) : [];
 
   return (
@@ -83,58 +80,12 @@ function OrderDetail() {
           <div className="space-y-6">
             <div className="card-surface p-5 md:p-6">
               <h2 className="text-base font-semibold">Order timeline</h2>
-              <div className="mt-5 overflow-x-auto pb-2">
-                <div className="flex min-w-[480px] items-start gap-0 px-10">
-                  {flow.map((s, i) => {
-                    const entry = order.timeline.find((t) => t.status === s);
-                    const isDone = reached(s) && i < currentIndex;
-                    const isCurrent = s === order.status;
-                    return (
-                      <div key={s} className="flex flex-1 flex-col items-center ">
-                        <div className="flex w-full items-center justify-center">
-                          {i > 0 && (
-                            <span
-                              className={cn(
-                                "h-px flex-1",
-                                isDone || isCurrent ? "bg-success" : "bg-border",
-                              )}
-                            />
-                          )}
-                          <span
-                            className={cn(
-                              "z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
-                              isDone && "border-success bg-success text-success-foreground",
-                              isCurrent && "border-primary bg-primary text-primary-foreground",
-                              !isDone && !isCurrent && "border-border bg-card text-subtle",
-                            )}
-                          >
-                            {isDone ? <Check className="h-4 w-4" /> : i + 1}
-                          </span>
-                          {i < flow.length - 1 && (
-                            <span
-                              className={cn("h-px flex-1", isDone ? "bg-success" : "bg-border")}
-                            />
-                          )}
-                        </div>
-                        <p
-                          className={cn(
-                            "mt-2 text-center text-xs font-semibold",
-                            !isDone && !isCurrent && "text-muted-foreground",
-                          )}
-                        >
-                          {orderStatusLabel[s]}
-                        </p>
-                        <p className="mt-0.5 text-center text-[11px] text-muted-foreground">
-                          {entry
-                            ? new Date(entry.at).toLocaleDateString("en-IN")
-                            : isCurrent
-                              ? "In progress"
-                              : "Pending"}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
+              <div className="mt-5">
+                <OrderTimeline
+                  fulfillment={order.fulfillment}
+                  status={order.status}
+                  timeline={order.timeline}
+                />
               </div>
             </div>
 
@@ -152,6 +103,10 @@ function OrderDetail() {
                       <p className="text-xs text-muted-foreground">
                         {d.pages} pages · {d.sizeMb} MB
                       </p>
+                    </div>
+                    <div className="ml-auto flex items-center gap-2">
+                      <button><Eye className="h-5 w-5" /></button>
+                      <button><Download className="h-5 w-5" /></button>
                     </div>
                   </div>
                 ))}

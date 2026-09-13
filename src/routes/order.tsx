@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   FileText,
@@ -7,12 +7,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Filter,
   MapPin,
   Phone,
   Store as StoreIcon,
   Truck,
   Wallet,
-  PartyPopper,
   Eye,
   Upload,
 } from "lucide-react";
@@ -29,6 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DocumentUploadCard } from "@/components/home/DocumentUploadCard";
 import { cn } from "@/lib/utils";
 import { newOrderId, useStore } from "@/lib/store";
@@ -588,8 +589,40 @@ function DocumentPreviewDialog({
   );
 }
 
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+function shopOpenDays(hours: string): Set<string> {
+  const daySet = new Set<string>();
+  const prefix = hours.split("·")[0]?.trim() ?? "";
+  if (/sun/i.test(prefix) && !/mon/i.test(prefix)) {
+    daySet.add("Sun");
+    return daySet;
+  }
+  const rangeMatch = prefix.match(/(\w+)\s*[–-]\s*(\w+)/);
+  if (rangeMatch) {
+    const start = DAY_NAMES.findIndex((d) => d.toLowerCase() === rangeMatch[1]!.toLowerCase());
+    const end = DAY_NAMES.findIndex((d) => d.toLowerCase() === rangeMatch[2]!.toLowerCase());
+    if (start !== -1 && end !== -1) {
+      let i = start;
+      while (true) {
+        daySet.add(DAY_NAMES[i]!);
+        if (i === end) break;
+        i = (i + 1) % 7;
+      }
+    }
+  } else {
+    for (const d of DAY_NAMES) {
+      if (prefix.toLowerCase().includes(d.toLowerCase())) daySet.add(d);
+    }
+  }
+  return daySet;
+}
+
 function shopAvailability(shop: Shop, now = new Date()) {
   if (!shop.openingTime || !shop.closingTime) return { open: true, label: "Open" };
+  const todayName = DAY_NAMES[now.getDay()];
+  const openDays = shopOpenDays(shop.hours);
+  if (!openDays.has(todayName!)) return { open: false, label: "Closed" };
   const toMinutes = (value: string) => {
     const [hours = 0, minutes = 0] = value.split(":").map(Number);
     return hours * 60 + minutes;
@@ -627,6 +660,11 @@ function OrderPage() {
     consumePendingUploadFiles,
     uploadedFileNames,
     setUploadedFileNames,
+    orderDraft,
+    saveOrderDraft,
+    clearOrderDraft,
+    hydrated,
+    cacheFile,
   } = useStore();
   const { session } = useAuth();
 
@@ -650,18 +688,37 @@ function OrderPage() {
   });
   const [method, setMethod] = useState<PaymentMethod>("full");
   const [notes, setNotes] = useState("");
-  const [placed, setPlaced] = useState<Order | null>(null);
   const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(null);
   const [fulfillmentDialogOpen, setFulfillmentDialogOpen] = useState(false);
   const [shopConfirmed, setShopConfirmed] = useState(true);
   const [mobileShopSummaryOpen, setMobileShopSummaryOpen] = useState(false);
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
   const addMoreFilesRef = useRef<HTMLInputElement>(null);
-  const shopScrollRef = useRef<HTMLDivElement>(null);
-  const [shopSearch, setShopSearch] = useState("");
-  const [shopLocationFilter, setShopLocationFilter] = useState("");
-  const [shopSortOrder, setShopSortOrder] = useState("");
+  const draftRestoredRef = useRef(false);
 
+  // Restore order draft after store hydration.
+  // useState initializers only run on the first render, but the store hydrates
+  // from localStorage in a useEffect (async). So we must apply the draft in a
+  // separate effect that fires once the store has hydrated.
+  useEffect(() => {
+    if (!hydrated || !orderDraft || draftRestoredRef.current) return;
+    draftRestoredRef.current = true;
+    setStep(orderDraft.step);
+    setDocs(orderDraft.docs);
+    setConfig(orderDraft.config);
+    setShopId(orderDraft.shopId);
+    setFulfillment(orderDraft.fulfillment);
+    setAddressId(orderDraft.addressId);
+    setMethod(orderDraft.method);
+    setNotes(orderDraft.notes);
+    clearOrderDraft();
+  }, [hydrated, orderDraft, clearOrderDraft]);
+  const [shopSearch, setShopSearch] = useState("");
+  const [shopFilters, setShopFilters] = useState({
+    openOnly: true,
+    nearest: false,
+    lowestPrice: false,
+  });
   const shop = useMemo<Shop>(
     () => shops.find((s) => s.id === shopId) ?? shops[0]!,
     [shops, shopId],
@@ -686,23 +743,12 @@ function OrderPage() {
     if (replacement) setMethod(replacement);
   }, [fulfillment, method, shop]);
 
-  // Extract unique locations from shop addresses for the location filter.
-  const shopLocations = useMemo(() => {
-    const parts = new Set<string>();
-    for (const s of shops) {
-      const addrParts = s.address.split(",").map((p) => p.trim());
-      // Use the area/neighborhood part (typically second-to-last before city).
-      if (addrParts.length >= 2) {
-        const area = addrParts[addrParts.length - 2];
-        if (area) parts.add(area.replace(/\s*-\s*\d{6}$/, "").trim());
-      }
-    }
-    return [...parts].sort();
-  }, [shops]);
-
-  // Filter and sort shops based on search, location, and sort order.
+  // Filter and sort shops based on search, filters, and current order pricing.
   const filteredSortedShops = useMemo(() => {
     let result = [...shops];
+
+    // Always exclude closed shops.
+    result = result.filter((s) => shopAvailability(s).open);
 
     // Search filter.
     if (shopSearch.trim()) {
@@ -712,28 +758,88 @@ function OrderPage() {
       );
     }
 
-    // Location filter.
-    if (shopLocationFilter) {
-      result = result.filter((s) =>
-        s.address.toLowerCase().includes(shopLocationFilter.toLowerCase()),
-      );
+    // Nearest sort (by existing distanceKm field).
+    if (shopFilters.nearest) {
+      result.sort((a, b) => a.distanceKm - b.distanceKm);
     }
 
-    // Sort by total amount.
-    if (shopSortOrder === "lowest" || shopSortOrder === "highest") {
+    // Lowest price sort (by actual calculated order total).
+    if (shopFilters.lowestPrice) {
       result.sort((a, b) => {
         const totalA = calculateOrderPrice(a, docs, config, fulfillment).total;
         const totalB = calculateOrderPrice(b, docs, config, fulfillment).total;
-        return shopSortOrder === "lowest" ? totalA - totalB : totalB - totalA;
+        return totalA - totalB;
       });
     }
 
     return result;
-  }, [shops, shopSearch, shopLocationFilter, shopSortOrder, docs, config, fulfillment]);
+  }, [shops, shopSearch, shopFilters, docs, config, fulfillment]);
 
-  const handleShopScroll = () => {
-    // Scroll handler for future enhancements (e.g., updating active dot on scroll).
-  };
+  // Group filtered shops into pages of 3 for set-based scrolling.
+  const shopPages = useMemo(() => {
+    const pages: Shop[][] = [];
+    for (let i = 0; i < filteredSortedShops.length; i += 3) {
+      pages.push(filteredSortedShops.slice(i, i + 3));
+    }
+    return pages;
+  }, [filteredSortedShops]);
+
+  const [activeShopSet, setActiveShopSet] = useState(0);
+  const [activeCardIndex, setActiveCardIndex] = useState(0);
+  const activeShopSetRef = useRef(0);
+  const pageScrollRef = useRef<HTMLDivElement>(null);
+  const pageSentinelRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // Keep ref synchronized with state.
+  useEffect(() => {
+    activeShopSetRef.current = activeShopSet;
+  }, [activeShopSet]);
+
+  // Clamp activeShopSet when pages shrink.
+  useEffect(() => {
+    if (activeShopSet >= shopPages.length) {
+      const clamped = Math.max(0, shopPages.length - 1);
+      setActiveShopSet(clamped);
+      activeShopSetRef.current = clamped;
+    }
+  }, [shopPages.length, activeShopSet]);
+
+  // Reset dot position when the actual set of visible shop IDs changes (search/filter).
+  const shopIdsKey = filteredSortedShops.map((s) => s.id).join(",");
+  const prevShopIdsKeyRef = useRef(shopIdsKey);
+  useEffect(() => {
+    if (shopIdsKey !== prevShopIdsKeyRef.current) {
+      prevShopIdsKeyRef.current = shopIdsKey;
+      setActiveCardIndex(0);
+      setActiveShopSet(0);
+      activeShopSetRef.current = 0;
+    }
+  }, [shopIdsKey]);
+
+  // IntersectionObserver: track which SET is visible, reset card index ONLY on set change.
+  useEffect(() => {
+    const container = pageScrollRef.current;
+    const sentinels = pageSentinelRefs.current.filter(Boolean);
+    if (!container || !sentinels.length) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => (b.intersectionRatio ?? 0) - (a.intersectionRatio ?? 0));
+        if (visible[0]) {
+          const idx = Number(visible[0].target.getAttribute("data-page-idx"));
+          if (!Number.isNaN(idx) && idx !== activeShopSetRef.current) {
+            activeShopSetRef.current = idx;
+            setActiveShopSet(idx);
+            setActiveCardIndex(0);
+          }
+        }
+      },
+      { root: container, threshold: 0.6 },
+    );
+    sentinels.forEach((el) => el && observer.observe(el));
+    return () => observer.disconnect();
+  }, [shopPages]);
 
   const addFiles = async (incoming: File[]) => {
     if (!incoming.length) return;
@@ -763,6 +869,11 @@ function OrderPage() {
       ...current,
       ...Object.fromEntries(pendingDocs.map((item) => [item.document.id, item.file])),
     }));
+
+    // Cache files in the store so they're available from the shopkeeper detail page.
+    for (const item of pendingDocs) {
+      cacheFile(item.document.id, item.file);
+    }
 
     // Detect pages in parallel and update each document as it completes.
     await Promise.all(
@@ -899,6 +1010,7 @@ function OrderPage() {
       return;
     }
     if (session?.role !== "customer") {
+      saveOrderDraft({ step, docs, config, shopId, fulfillment, addressId, method, notes });
       toast.error("Sign in with a customer account before placing an order.");
       navigate({ to: "/auth/customer/login" });
       return;
@@ -939,53 +1051,13 @@ function OrderPage() {
     placeOrder(order);
     clearPendingDocs();
     setUploadedFileNames([]);
-    setPlaced(order);
     toast.success("Order placed", { description: `${order.id} sent to ${shop.name}` });
+    navigate({ to: "/order-confirmation/$orderId", params: { orderId: order.id } });
   };
-
-  if (placed) {
-    return (
-      <CustomerShell>
-        <div className="container-page flex min-h-[70vh] items-center justify-center py-12">
-          <div className="card-surface w-full max-w-md p-8 text-center">
-            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-success-light text-success">
-              <PartyPopper className="h-7 w-7" />
-            </span>
-            <h1 className="mt-5 text-2xl font-bold">Order placed</h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {placed.shopName} has received your order. You'll see live updates as they print it.
-            </p>
-            <div className="mt-6 rounded-lg bg-secondary p-4 text-left text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Order ID</span>
-                <span className="font-semibold">{placed.id}</span>
-              </div>
-              <div className="mt-2 flex justify-between">
-                <span className="text-muted-foreground">Paid now</span>
-                <span className="font-semibold">{inr(placed.amountPaid)}</span>
-              </div>
-              <div className="mt-2 flex justify-between">
-                <span className="text-muted-foreground">Balance</span>
-                <span className="font-semibold">{inr(placed.balance)}</span>
-              </div>
-            </div>
-            <div className="mt-6 flex flex-col gap-2">
-              <Link to="/orders/$orderId" params={{ orderId: placed.id }}>
-                <Button className="w-full">Track this order</Button>
-              </Link>
-              <Button variant="outline" onClick={() => navigate({ to: "/" })}>
-                Go to Home
-              </Button>
-            </div>
-          </div>
-        </div>
-      </CustomerShell>
-    );
-  }
 
   return (
     <CustomerShell>
-      <div className="container-page py-8 md:py-5">
+      <div className="container-page ">
         {/* <h1 className="text-page-title font-bold">XEROXMATE</h1> */}
         {/* <p className="mt-2 text-sm text-muted-foreground">
           Step {step + 1} of {STEP_TITLES.length} — {STEP_TITLES[step]}
@@ -1127,128 +1199,199 @@ function OrderPage() {
             )}
 
             {step === 1 && (
-              <SectionCard
-                title="Select Nearby print shops to Continue"
-                hint="Prices update instantly based on the shop you pick."
-              >
-                {/* Search + Filters */}
-                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <input
-                    type="text"
-                    placeholder="Search shops..."
-                    value={shopSearch}
-                    onChange={(e) => setShopSearch(e.target.value)}
-                    className="h-9 flex-1 rounded-md border border-border bg-card px-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none"
-                  />
-                  <select
-                    value={shopLocationFilter}
-                    onChange={(e) => setShopLocationFilter(e.target.value)}
-                    className="h-9 rounded-md border border-border bg-card px-3 text-sm focus:border-primary focus:outline-none"
-                  >
-                    <option value="">Location</option>
-                    {shopLocations.map((loc) => (
-                      <option key={loc} value={loc}>
-                        {loc}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={shopSortOrder}
-                    onChange={(e) => setShopSortOrder(e.target.value)}
-                    className="h-9 rounded-md border border-border bg-card px-3 text-sm focus:border-primary focus:outline-none"
-                  >
-                    <option value="">Lowest total amount</option>
-                    <option value="lowest">Lowest first</option>
-                    <option value="highest">Highest first</option>
-                  </select>
-                </div>
-
-                {/* Shop cards with vertical dots */}
-                <div
-                  className="flex gap-3"
-                  style={{ maxHeight: "calc(100vh - 320px)", minHeight: "300px" }}
+              <div className=" space-y-6 lg:sticky lg:top-24 lg:self-start">
+                <SectionCard
+                  title="Select Nearby print shops to Continue"
+                  hint="Prices update instantly based on the shop you pick."
                 >
-                  {/* Vertical dots indicator */}
-                  <div className="hidden w-5 shrink-0 flex-col items-center gap-2 pt-2 sm:flex">
-                    {filteredSortedShops.map((s) => (
-                      <span
-                        key={s.id}
-                        className={cn(
-                          "block h-2 w-2 shrink-0 rounded-full transition-colors",
-                          s.id === shopId ? "bg-primary" : "bg-border",
-                        )}
-                      />
-                    ))}
+                  {/* Search + Filter */}
+                  <div className="mb-4 flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="Search shops..."
+                      value={shopSearch}
+                      onChange={(e) => setShopSearch(e.target.value)}
+                      className="h-9 flex-1 min-w-0 rounded-md border border-border bg-card px-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+                    />
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="icon" className="h-9 w-9 shrink-0">
+                          <Filter className="h-4 w-4" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-56 p-3">
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-subtle">
+                          Filter shops
+                        </p>
+                        <div className="space-y-2">
+                          {(
+                            [
+                              { key: "nearest" as const, label: "Nearest" },
+                              { key: "lowestPrice" as const, label: "Lowest price" },
+                            ] as const
+                          ).map((opt) => (
+                            <label
+                              key={opt.key}
+                              className="flex cursor-pointer items-center gap-2 text-sm"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={shopFilters[opt.key]}
+                                onChange={(e) =>
+                                  setShopFilters((f) => ({
+                                    ...f,
+                                    [opt.key]: e.target.checked,
+                                  }))
+                                }
+                                className="h-4 w-4 rounded border-border accent-primary"
+                              />
+                              {opt.label}
+                            </label>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                   </div>
 
-                  {/* Shop cards */}
+                  {/* Shop cards with 3-dot page indicator */}
                   <div
-                    ref={shopScrollRef}
-                    className="flex-1 space-y-3 overflow-y-auto scrollbar-hide"
-                    onScroll={handleShopScroll}
+                    className="flex gap-2 sm:gap-3"
+                    style={{ height: "min(calc(100vh - 320px), 335px)" }}
                   >
-                    {filteredSortedShops.length === 0 && (
-                      <p className="py-8 text-center text-sm text-muted-foreground">
-                        No shops match your search.
-                      </p>
-                    )}
-                    {filteredSortedShops.map((s) => {
-                      const active = shopConfirmed && s.id === shopId;
-                      const availability = shopAvailability(s);
-                      const shopTotal = calculateOrderPrice(s, docs, config, fulfillment).total;
-                      return (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onClick={() => selectShop(s.id)}
-                          className={cn(
-                            "w-full rounded-lg border p-4 text-left transition-colors",
-                            active
-                              ? "border-primary bg-primary-light"
-                              : "border-border bg-card hover:bg-secondary",
-                          )}
+                    {/* 3 dots — represent card position inside current set */}
+                    <div className="relative flex w-5 shrink-0 flex-col items-center justify-center">
+                      <div className="flex flex-col items-center gap-2">
+                        {[0, 1, 2].map((dotIdx) => {
+                          const isActive = dotIdx === activeCardIndex;
+                          return (
+                            <span
+                              key={dotIdx}
+                              data-dot={dotIdx}
+                              data-active={isActive}
+                              className="rounded-full"
+                              style={{
+                                display: "block",
+                                width: isActive ? 6 : 8,
+                                height: isActive ? 6 : 8,
+                                backgroundColor: isActive
+                                  ? "var(--color-primary)"
+                                  : "var(--color-white)",
+                                opacity: isActive ? 1 : 0.5,
+                                transform: isActive ? "scale(2)" : "scale(1)",
+                                transition: "all 300ms ease-out",
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Shop cards — scroll-snap container, one page at a time */}
+                    <div
+                      ref={pageScrollRef}
+                      className="flex-1 overflow-y-auto scrollbar-hide pb-1 space-y-10"
+                      style={{ scrollSnapType: "y mandatory" }}
+                    >
+                      {shopPages.length === 0 && (
+                        <p className="py-8 text-center text-sm text-muted-foreground">
+                          No open print shops found. Try changing your search or filters.
+                        </p>
+                      )}
+                      {shopPages.map((page, pageIdx) => (
+                        <div
+                          key={pageIdx}
+                          ref={(el) => {
+                            pageSentinelRefs.current[pageIdx] = el;
+                          }}
+                          data-page-idx={pageIdx}
+                          className="space-y-3"
+                          style={{ scrollSnapAlign: "start" }}
                         >
-                          <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:gap-4">
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-semibold">{s.name}</p>
-                              <p className="mt-1 text-xs text-muted-foreground">{s.address}</p>
-                              <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                                <span className="inline-flex items-center gap-1 rounded-md bg-card px-2 py-1 font-medium">
-                                  ★ {s.rating}
-                                </span>
-                                <span className="rounded-md bg-card px-2 py-1 font-medium">
-                                  {s.delivery.enabled ? "Pickup + Delivery" : "Pickup only"}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="flex shrink-0 flex-col items-start gap-1.5 sm:items-end">
-                              <span
+                          {page.map((s, cardIdx) => {
+                            const active = shopConfirmed && s.id === shopId;
+                            const availability = shopAvailability(s);
+                            const shopTotal = calculateOrderPrice(
+                              s,
+                              docs,
+                              config,
+                              fulfillment,
+                            ).total;
+                            return (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => {
+                                  selectShop(s.id);
+                                  setActiveShopSet(pageIdx);
+                                  setActiveCardIndex(cardIdx);
+                                  activeShopSetRef.current = pageIdx;
+                                }}
                                 className={cn(
-                                  "rounded-full px-2.5 py-1 text-xs font-semibold",
-                                  availability.open
-                                    ? "bg-success-light text-success"
-                                    : "bg-destructive/10 text-destructive",
+                                  "w-full rounded-lg border p-3 text-left transition-colors",
+                                  active
+                                    ? "border-primary bg-primary-light"
+                                    : "border-border bg-card hover:bg-secondary",
                                 )}
                               >
-                                {availability.label}
-                              </span>
-                              <span className="mt-1 inline-block rounded-md border border-border bg-secondary px-2 py-1 text-sm font-semibold text-foreground">
-                                Total Amount : {inr(shopTotal)}
-                              </span>
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                                {/* Row 1: Name + Open/Closed */}
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="min-w-0 truncate text-sm font-semibold">{s.name}</p>
+                                  <span
+                                    className={cn(
+                                      "shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold",
+                                      availability.open
+                                        ? "bg-success-light text-success"
+                                        : "bg-destructive/10 text-destructive",
+                                    )}
+                                  >
+                                    {availability.label}
+                                  </span>
+                                </div>
 
-                <div className="mt-5 border-t border-border pt-5">
-                  <Button variant="outline" onClick={() => setStep(0)}>
-                    <ChevronLeft className="h-4 w-4" /> Back
-                  </Button>
-                </div>
-              </SectionCard>
+                                {/* Row 2: Address */}
+                                <div className="mt-1.5 flex items-center justify-between gap-3">
+                                  <p className="mt-1.5 text-xs text-muted-foreground">
+                                    {s.address}
+                                  </p>
+
+                                  <p className="text-xs text-muted-foreground">{s.hours}</p>
+                                </div>
+
+                                {/* Row 3: Rating + Fulfilment */}
+                                <div className="mt-1.5 flex justify-between  items-center gap-2 text-xs">
+                                  <div className="flex justify-center items-center gap-2 text-xs">
+                                    <span className="font-medium">★ {s.rating}</span>
+                                    <span className="text-muted-foreground">
+                                      {s.delivery.enabled ? "Pickup + Delivery" : "Pickup only"}
+                                    </span>
+                                  </div>
+                                  <span className="shrink-0 text-sm font-semibold">
+                                    Total Amount : {inr(shopTotal)}
+                                  </span>
+                                </div>
+
+                                {/* Row 4: Hours + Total */}
+                                {/* <div className="mt-1.5 flex items-center justify-between gap-3">
+                                  <p className="text-xs text-muted-foreground">{s.hours}</p>
+                                  <span className="shrink-0 text-sm font-semibold">
+                                    Total Amount : {inr(shopTotal)}
+                                  </span>
+                                </div> */}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-5 border-t border-border pt-5">
+                    <Button variant="outline" onClick={() => setStep(0)}>
+                      <ChevronLeft className="h-4 w-4" /> Back
+                    </Button>
+                  </div>
+                </SectionCard>
+              </div>
             )}
 
             <Dialog
@@ -1258,12 +1401,12 @@ function OrderPage() {
                 if (!open && step === 2) setStep(1);
               }}
             >
-              <DialogContent className="max-h-[200vh] overflow-y-auto sm:max-w-xl">
+              <DialogContent className="max-h-[200vh] py-15 overflow-y-auto sm:max-w-2xl">
                 <DialogHeader>
                   <DialogTitle>How would you like to receive your order?</DialogTitle>
                   <DialogDescription>{shop.name}</DialogDescription>
                 </DialogHeader>
-                <div className="mt-5 grid gap-5 sm:grid-rows-2">
+                <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
                   <button
                     type="button"
                     onClick={() => setFulfillment("pickup")}

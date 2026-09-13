@@ -80,6 +80,43 @@ function ShopProfile() {
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="workingDaysFrom">Working days from</Label>
+                <select
+                  id="workingDaysFrom"
+                  className="mt-1.5 w-full rounded-md border bg-background px-3 py-2"
+                  value={shop.workingDaysFrom}
+                  onChange={(e) => set("workingDaysFrom", e.target.value)}
+                >
+                  <option value="Monday">Monday</option>
+                  <option value="Tuesday">Tuesday</option>
+                  <option value="Wednesday">Wednesday</option>
+                  <option value="Thursday">Thursday</option>
+                  <option value="Friday">Friday</option>
+                  <option value="Saturday">Saturday</option>
+                  <option value="Sunday">Sunday</option>
+                </select>
+              </div>
+
+              <div>
+                <Label htmlFor="workingDaysTo">Working days to</Label>
+                <select
+                  id="workingDaysTo"
+                  className="mt-1.5 w-full rounded-md border bg-background px-3 py-2"
+                  value={shop.workingDaysTo}
+                  onChange={(e) => set("workingDaysTo", e.target.value)}
+                >
+                  <option value="Monday">Monday</option>
+                  <option value="Tuesday">Tuesday</option>
+                  <option value="Wednesday">Wednesday</option>
+                  <option value="Thursday">Thursday</option>
+                  <option value="Friday">Friday</option>
+                  <option value="Saturday">Saturday</option>
+                  <option value="Sunday">Sunday</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
               <div><Label htmlFor="opening">Opening time</Label><Input id="opening" type="time" className="mt-1.5" value={shop.openingTime ?? ""} onChange={(e) => set("openingTime", e.target.value)} /></div>
               <div><Label htmlFor="closing">Closing time</Label><Input id="closing" type="time" className="mt-1.5" value={shop.closingTime ?? ""} onChange={(e) => set("closingTime", e.target.value)} /></div>
             </div>
@@ -104,9 +141,9 @@ function ShopProfile() {
                 onChange={(e) => set("address", e.target.value)}
               />
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            {/* <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <Label htmlFor="hours">Working hours</Label>
+                <Label htmlFor="hours">Working days from </Label>
                 <Input
                   id="hours"
                   className="mt-1.5"
@@ -115,7 +152,7 @@ function ShopProfile() {
                 />
               </div>
               <div>
-                <Label htmlFor="prep">Prep time (minutes)</Label>
+                <Label htmlFor="prep">Working days from </Label>
                 <Input
                   id="prep"
                   type="number"
@@ -124,7 +161,8 @@ function ShopProfile() {
                   onChange={(e) => set("prepMinutes", Number(e.target.value) || 0)}
                 />
               </div>
-            </div>
+            </div> */}
+          
           </div>
         </div>
 

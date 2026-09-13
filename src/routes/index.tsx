@@ -25,8 +25,8 @@ function Index() {
       <div className="home-orb home-orb-one" /> <div className="home-orb home-orb-two" />
       <div className="container-page relative grid items-center gap-10 py-2 md:py-18 lg:grid-cols-[1.05fr_.95fr] lg:py-24">
         <div className="home-enter">
-          <span className="hidden md:inline-flex items-center gap-2 rounded-full border border-primary/20 bg-card/75 px-3 py-1.5 text-xs font-semibold text-primary shadow-sm backdrop-blur"><Sparkles className="h-3.5 w-3.5" /> XEROXMATE</span>
-          <h1 className="mt-6 max-w-2xl text-4xl font-extrabold tracking-[-0.045em] text-foreground sm:text-5xl lg:text-6xl">Print Smarter.<br /><span className="text-primary">Skip the Queue.</span></h1>
+          {/* <span className="hidden md:inline-flex items-center gap-2 rounded-full border border-primary/20 bg-card/75 px-3 py-1.5 text-xs font-semibold text-primary shadow-sm backdrop-blur"><Sparkles className="h-3.5 w-3.5" /> XEROXMATE</span> */}
+          <h1 className="mt-6 max-w-2xl text-4xl font-extrabold tracking-[-0.045em] text-foreground sm:text-5xl lg:text-6xl">Your Printing  <span className="text-primary">Partner.</span></h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-muted-foreground md:text-lg">Upload your documents, customize your printing, and get your order ready before you arrive.</p>
           <div className="mt-8 w-full hidden md:flex flex-wrap gap-3">
             <Link to="/order" ><Button size="lg" className="shadow-lg shadow-primary/20 ">XEROXMATE <ArrowRight className="h-4 w-4" /></Button></Link>

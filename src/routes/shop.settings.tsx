@@ -56,7 +56,7 @@ function ShopSettings() {
                 }}
               />
             </div>
-            <div>
+            {/* <div>
               <Label htmlFor="limit">Daily order limit</Label>
               <Input
                 id="limit"
@@ -68,7 +68,7 @@ function ShopSettings() {
               <p className="mt-1.5 text-sm text-muted-foreground">
                 New orders pause automatically once you hit this number.
               </p>
-            </div>
+            </div> */}
           </div>
         </div>
 
@@ -80,7 +80,6 @@ function ShopSettings() {
             {(
               [
                 ["sound", "Sound alert for new orders"],
-                ["sms", "SMS to shop phone"],
                 ["email", "Daily summary email"],
               ] as const
             ).map(([key, label]) => (
@@ -95,7 +94,7 @@ function ShopSettings() {
           </div>
         </div>
 
-        <div className="card-surface p-5 md:p-6 lg:col-span-2">
+        {/* <div className="card-surface p-5 md:p-6 lg:col-span-2">
           <h2 className="inline-flex items-center gap-2 text-base font-semibold">
             <Printer className="h-4 w-4 text-primary" /> Printers
           </h2>
@@ -109,7 +108,7 @@ function ShopSettings() {
           >
             Connect a printer
           </Button>
-        </div>
+        </div> */}
       </div>
     </ShopShell>
   );

@@ -24,17 +24,34 @@ export function CustomerShell({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { session, signOut } = useAuth();
 
-  const isActive = (to: string) => (to === "/" ? pathname === "/" : pathname.startsWith(to));
+  const isActive = (to: string) =>
+    to === "/" ? pathname === "/" : pathname === to || pathname.startsWith(to + "/");
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="sticky top-0 z-40 border-b border-border bg-card/90 backdrop-blur">
         <div className="container-page flex h-16 items-center justify-between gap-4">
-          <Link to="/" className="flex items-center gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
+          {/* <Link to="/" className="flex items-center gap-2">
+            {/* <span className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
               <Printer className="h-5 w-5" />
             </span>
-            <span className="text-[15px] font-bold tracking-tight">XEROXMATE</span>
+            <span className="text-[15px] font-bold tracking-tight">XEROXMATE</span> 
+
+          </Link> */}
+          <Link to="/" className="flex items-center">
+            {/* Light theme logo */}
+            <img
+              src="/logo-dark.png"
+              alt="XEROXMATE"
+              className="h-16"
+            />
+
+            {/* Dark theme logo */}
+            {/* <img
+              src="/logo-dark.png"
+              alt="XEROXMATE"
+              className="hidden h-9 w-auto dark:block"
+            /> */}
           </Link>
 
           <nav className="hidden items-center gap-1 md:flex">
@@ -83,7 +100,7 @@ export function CustomerShell({
       <main className="flex-1 pb-20 md:pb-0">{children}</main>
 
       {!hideFooter && (
-        <footer className="mt-1 hidden border-t border-border bg-card md:block">
+        <footer className="mt-5 hidden border-t border-border bg-card md:block">
           <div className="container-page flex flex-col gap-2 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
             <p>© {new Date().getFullYear()} XEROXMATE · Print smarter, skip the queue.</p>
             <div className="flex gap-4">
