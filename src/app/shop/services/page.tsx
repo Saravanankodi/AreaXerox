@@ -1,6 +1,6 @@
 "use client";
 
-import { Route } from "@/routes/index";
+import { Route } from "@/routes/shop.services";
 export default function Page() {
   const Component = Route.options.component!;
   return <Component />;

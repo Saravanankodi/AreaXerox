@@ -1,0 +1,1829 @@
+import { createFileRoute, useNavigate } from "@/lib/navigation";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  FileText,
+  Trash2,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Filter,
+  MapPin,
+  Phone,
+  Store as StoreIcon,
+  Truck,
+  Wallet,
+  Eye,
+  Upload,
+} from "lucide-react";
+import { toast } from "sonner";
+import { CustomerShell } from "@/components/layout/CustomerShell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DocumentUploadCard } from "@/components/home/DocumentUploadCard";
+import { cn } from "@/lib/utils";
+import { newOrderId, useStore } from "@/lib/store";
+import { useAuth } from "@/lib/auth";
+import { calculateDocumentPrices, calculateOrderPrice, inr, paymentSplit } from "@/lib/pricing";
+import { detectPageCount } from "@/lib/document-pages";
+import { paymentMethodLabel } from "@/lib/labels";
+import { ACCEPTED_UPLOAD_TYPES, isSupportedUpload } from "@/lib/upload-config";
+import type {
+  Address,
+  DocumentFile,
+  Fulfillment,
+  Orientation,
+  Order,
+  PaymentMethod,
+  PrintConfig,
+  Shop,
+} from "@/types";
+
+export const Route = createFileRoute("/order")({
+  head: () => ({
+    meta: [
+      { title: "Place a Print Order — XEROXMATE" },
+      {
+        name: "description",
+        content:
+          "Upload documents, choose paper, colour, binding and delivery, then pay your way — in one guided flow.",
+      },
+      { property: "og:title", content: "Place a Print Order — XEROXMATE" },
+      {
+        property: "og:description",
+        content: "A six-step guided flow from upload to confirmed print order.",
+      },
+    ],
+  }),
+  component: OrderPage,
+});
+
+const STEP_TITLES = [
+  "Upload + specifications",
+  "Select shop",
+  "Pickup / delivery",
+  "Payment + preview",
+];
+
+const defaultConfig: PrintConfig = {
+  paperTypeId: "a4",
+  printType: "bw",
+  side: "single",
+  copies: 1,
+  pageRangeMode: "all",
+  pageRange: "",
+  pageLayout: 1,
+  orientation: "portrait",
+  bindingId: null,
+  additionalIds: [],
+};
+
+function StepRail({ step }: { step: number }) {
+  return (
+    <ol className="flex flex-wrap gap-2">
+      {STEP_TITLES.map((title, i) => {
+        const state = i === step ? "current" : i < step ? "done" : "todo";
+        return (
+          <li
+            key={title}
+            className={cn(
+              "flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-semibold",
+              state === "current" && "border-primary bg-primary-light text-primary",
+              state === "done" && "border-success/30 bg-success-light text-success",
+              state === "todo" && "border-border bg-card text-muted-foreground",
+            )}
+          >
+            <span className="flex h-5 w-5 items-center justify-center rounded-full border border-current text-[10px]">
+              {state === "done" ? <Check className="h-3 w-3" /> : i + 1}
+            </span>
+            <span className="hidden sm:inline">{title}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function SectionCard({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="md:card-surface p-5 md:px-6 md:py-4">
+      <h2 className="text-base font-semibold">{title}</h2>
+      {hint && <p className="mt-1 text-sm text-muted-foreground">{hint}</p>}
+      <div className="mt-5">{children}</div>
+    </div>
+  );
+}
+
+/** Physical sheets from quantity, duplex format, and n-up layout. Colour does not change sheet count. */
+function printedPaperCount(pages: number, config: PrintConfig) {
+  const copies = Math.max(1, Math.floor(config.copies));
+  const layout = config.pageLayout ?? 1;
+  const pageCount = Math.max(1, Math.floor(pages));
+  const impressions = Math.ceil(pageCount / layout);
+  const sheetsPerCopy = config.side === "double" ? Math.ceil(impressions / 2) : impressions;
+  return sheetsPerCopy * copies;
+}
+
+function FilePrintOptions({
+  document,
+  index,
+  shop,
+  fallback,
+  onSelect,
+  onChange,
+  onInstructionsChange,
+  onPreview,
+  onRemove,
+}: {
+  document: DocumentFile;
+  index: number;
+  shop: Shop;
+  fallback: PrintConfig;
+  onSelect: () => void;
+  onChange: (updater: (config: PrintConfig) => PrintConfig) => void;
+  onInstructionsChange: (value: string) => void;
+  onPreview: () => void;
+  onRemove: () => void;
+}) {
+  const config = document.printConfig ?? fallback;
+  const pageLayout = config.pageLayout ?? 1;
+  const papers = printedPaperCount(document.pages, config);
+  const enabledPapers = shop.paperTypes.filter((paper) => paper.enabled);
+  return (
+    <article onClick={onSelect} className="card-surface min-w-0 cursor-pointer overflow-hidden">
+      <div className="flex items-start justify-between gap-3 border-b border-border bg-secondary/50 px-4 py-3">
+        <div className="flex min-w-0 items-start gap-2">
+          <FileText className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <div className="min-w-0">
+            <span className="inline-flex rounded-md bg-primary-light px-2 py-0.5 text-[11px] font-semibold text-primary">
+              Document {index + 1}
+            </span>
+            <p className="mt-1.5 truncate text-sm font-semibold">{document.name}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {document.detectingPages
+                ? "Detecting pages..."
+                : `${document.pages} page${document.pages === 1 ? "" : "s"} · ${document.sizeMb} MB · ${
+                    document.pageCountDetected ? "Detected automatically" : "Confirm page count"
+                  }`}
+            </p>
+            <p className="mt-1 text-xs font-semibold text-foreground">
+              {document.detectingPages
+                ? "Detecting..."
+                : `${papers} ${papers === 1 ? "paper" : "papers"}`}
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-10 w-10"
+            onClick={(event) => {
+              event.stopPropagation();
+              onPreview();
+            }}
+            aria-label={`Preview ${document.name}`}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onRemove();
+            }}
+            className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            aria-label={`Remove ${document.name}`}
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+      <div className="order-doc-card-details">
+        <div className="order-doc-card-details-inner">
+          <div className="grid grid-cols-2 gap-3 p-4 min-[420px]:grid-cols-2">
+            <SelectControl
+              label="Paper type"
+              value={config.paperTypeId}
+              onChange={(value) => onChange((current) => ({ ...current, paperTypeId: value }))}
+            >
+              {enabledPapers.map((paper) => (
+                <option key={paper.id} value={paper.id}>
+                  {paper.name}
+                </option>
+              ))}
+            </SelectControl>
+            <div>
+              <Label className="text-xs font-semibold text-subtle">QUANTITY</Label>
+              <div className="mt-1.5 flex h-9 overflow-hidden rounded-md border border-input bg-card">
+                <button
+                  type="button"
+                  className="w-10 text-base hover:bg-secondary"
+                  onClick={() =>
+                    onChange((current) => ({ ...current, copies: Math.max(1, current.copies - 1) }))
+                  }
+                >
+                  −
+                </button>
+                <span className="flex flex-1 items-center justify-center border-x border-input text-xs font-semibold">
+                  {config.copies}
+                </span>
+                <button
+                  type="button"
+                  className="w-10 text-base hover:bg-secondary"
+                  onClick={() =>
+                    onChange((current) => ({ ...current, copies: current.copies + 1 }))
+                  }
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            <SelectControl
+              label="Colour"
+              value={config.printType}
+              onChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  printType: value as PrintConfig["printType"],
+                }))
+              }
+            >
+              <option value="bw">Black & White</option>
+              {shop.printTypes.color && <option value="color">Colour</option>}
+            </SelectControl>
+            <SelectControl
+              label="Format"
+              value={config.side}
+              onChange={(value) =>
+                onChange((current) => ({ ...current, side: value as PrintConfig["side"] }))
+              }
+            >
+              <option value="single">Front only</option>
+              {shop.printSides.double && <option value="double">Front & back</option>}
+            </SelectControl>
+            <SelectControl
+              label="Page layout"
+              value={String(pageLayout)}
+              onChange={(value) =>
+                onChange((current) => ({ ...current, pageLayout: Number(value) as 1 | 2 | 4 }))
+              }
+            >
+              <option value="1">1 Page / Sheet</option>
+              <option value="2">2 Pages / Sheet</option>
+              <option value="4">4 Pages / Sheet</option>
+            </SelectControl>
+            <SelectControl
+              label="Binding"
+              value={config.bindingId ?? "none"}
+              onChange={(value) =>
+                onChange((current) => ({ ...current, bindingId: value === "none" ? null : value }))
+              }
+            >
+              <option value="none">No binding</option>
+              {shop.binding
+                .filter((option) => option.enabled)
+                .map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name} · {inr(option.price)}
+                  </option>
+                ))}
+            </SelectControl>
+            <SelectControl
+              label="Lamination / extras"
+              value={config.additionalIds[0] ?? "none"}
+              onChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  additionalIds: value === "none" ? [] : [value],
+                }))
+              }
+            >
+              <option value="none">No extra service</option>
+              {shop.additional
+                .filter((option) => option.enabled)
+                .map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name} · {inr(option.price)} {option.perPage ? "/ page" : "/ set"}
+                  </option>
+                ))}
+            </SelectControl>
+            <SelectControl
+              label="Orientation"
+              value={config.orientation}
+              onChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  orientation: value as Orientation,
+                }))
+              }
+            >
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Landscape</option>
+            </SelectControl>
+            <div className="min-[420px]:col-span-2">
+              <Label className="text-xs font-semibold text-subtle">
+                SPECIAL INSTRUCTIONS (OPTIONAL)
+              </Label>
+              <Input
+                className="mt-1.5 h-9 text-xs"
+                placeholder="e.g. staple at top-left"
+                value={document.instructions ?? ""}
+                onChange={(event) => onInstructionsChange(event.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* <div className="flex items-center justify-between border-t border-dashed border-border px-4 py-3 text-sm"><span className="text-muted-foreground">{inr(quote.printing / Math.max(1, quote.billablePages))} per printed page · {quote.billablePages} pages</span><span className="font-bold">File total {inr(quote.total)}</span></div> */}
+    </article>
+  );
+}
+
+function SelectControl({
+  label,
+  value,
+  onChange,
+  children,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <Label className="text-xs font-semibold text-subtle">{label.toUpperCase()}</Label>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-1.5 h-9 w-full rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring"
+      >
+        {children}
+      </select>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="max-w-[62%] text-right text-xs font-semibold leading-5">{value}</dd>
+    </div>
+  );
+}
+
+function ShopSummaryPanel({
+  shop,
+  availability,
+  docs,
+  config,
+  fulfillment,
+  onContinue,
+}: {
+  shop: Shop;
+  availability: { open: boolean; label: string };
+  docs: DocumentFile[];
+  config: PrintConfig;
+  fulfillment: Fulfillment;
+  onContinue: () => void;
+}) {
+  const docPrices = calculateDocumentPrices(shop, docs, config);
+
+  return (
+    <>
+      <div className="flex items-start justify-between gap-3 border-b border-border pb-4">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wide text-subtle">Selected shop</p>
+          <h2 className="mt-1 truncate text-lg font-bold">{shop.name}</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {shop.openingTime && shop.closingTime
+              ? `${shop.openingTime}–${shop.closingTime}`
+              : shop.hours}
+          </p>
+        </div>
+        <span
+          className={cn(
+            "shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold",
+            availability.open
+              ? "bg-success-light text-success"
+              : "bg-destructive/10 text-destructive",
+          )}
+        >
+          {availability.label}
+        </span>
+      </div>
+
+      {docs.length > 0 && (
+        <div className="mt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-subtle">File costs</p>
+          <div className="mt-3 space-y-3">
+            {docs.map((document, index) => {
+              const fileConfig = document.printConfig ?? config;
+              const filePaper = shop.paperTypes.find(
+                (item) => item.id === fileConfig.paperTypeId && item.enabled,
+              );
+              const priceLine = docPrices[index];
+              if (!priceLine) return null;
+
+              const bindingOption = fileConfig.bindingId
+                ? shop.binding.find((item) => item.id === fileConfig.bindingId && item.enabled)
+                : null;
+              const additionalOptions = fileConfig.additionalIds
+                .map((id) => shop.additional.find((item) => item.id === id && item.enabled))
+                .filter((opt): opt is NonNullable<typeof opt> => !!opt);
+
+              const extras: string[] = [];
+              if (bindingOption) extras.push(bindingOption.name);
+              additionalOptions.forEach((option) => extras.push(option.name));
+
+              return (
+                <div key={document.id}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">Document {index + 1}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {document.pages} page{document.pages === 1 ? "" : "s"} · {fileConfig.copies}{" "}
+                        copy{fileConfig.copies === 1 ? "" : ""} ·{" "}
+                        {fileConfig.printType === "color" ? "Colour" : "B/W"} ·{" "}
+                        {filePaper?.name ?? "Paper"} · {fileConfig.side === "double" ? "F&B" : "F"}
+                        {extras.length > 0 && ` · ${extras.join(" · ")}`}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-sm font-semibold">{inr(priceLine.total)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {(() => {
+            const totalPrinting = docPrices.reduce((sum, p) => sum + p.printing, 0);
+            const totalBinding = docPrices.reduce((sum, p) => sum + p.binding, 0);
+            const totalServices = docPrices.reduce((sum, p) => sum + p.services, 0);
+            const finalTotal = totalPrinting + totalBinding + totalServices;
+            const hasAny = totalPrinting > 0 || totalBinding > 0 || totalServices > 0;
+            if (!hasAny) return null;
+            return (
+              <div className="mt-3 border-t border-border pt-3 space-y-1 text-xs">
+                {totalPrinting > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Priority Amount</span>
+                    <span className="font-medium">{inr(totalPrinting)}</span>
+                  </div>
+                )}
+                {totalBinding > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Binding</span>
+                    <span className="font-medium">{inr(totalBinding)}</span>
+                  </div>
+                )}
+                {totalServices > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Lamination</span>
+                    <span className="font-medium">{inr(totalServices)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between border-t border-border pt-1 text-sm font-bold">
+                  <span>Final total</span>
+                  <span>{inr(finalTotal)}</span>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      <div className="mt-5">
+        <Button type="button" onClick={onContinue} className="w-full">
+          Continue <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+    </>
+  );
+}
+
+function DocumentPreviewDialog({
+  document,
+  file,
+  onOpenChange,
+}: {
+  document: DocumentFile | null;
+  file?: File | undefined;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!file) {
+      setObjectUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setObjectUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  const isImage = !!file?.type.startsWith("image/");
+  const isPdf = file?.type === "application/pdf" || document?.name.toLowerCase().endsWith(".pdf");
+  return (
+    <Dialog open={!!document} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto p-4 sm:p-6">
+        <DialogHeader>
+          <DialogTitle className="pr-8 break-words">
+            {document?.name ?? "Document preview"}
+          </DialogTitle>
+          <DialogDescription>
+            {document
+              ? `${document.pages} page${document.pages === 1 ? "" : "s"} · ${document.sizeMb} MB`
+              : ""}
+          </DialogDescription>
+        </DialogHeader>
+        {isImage && objectUrl && (
+          <img
+            src={objectUrl}
+            alt={`Preview of ${document?.name ?? "document"}`}
+            className="mx-auto max-h-[68vh] w-auto max-w-full rounded-md object-contain"
+          />
+        )}
+        {isPdf && objectUrl && (
+          <iframe
+            src={objectUrl}
+            title={`Preview of ${document?.name ?? "document"}`}
+            className="h-[62vh] w-full rounded-md border border-border"
+          />
+        )}
+        {!isImage && !isPdf && (
+          <div className="rounded-lg border border-dashed border-border bg-secondary/50 p-6 text-center">
+            <FileText className="mx-auto h-8 w-8 text-primary" />
+            <p className="mt-3 text-sm font-semibold">
+              Preview is not available for this file type
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {file
+                ? `${file.type || "Unknown file type"} · ${document?.sizeMb ?? 0} MB`
+                : "The original local file is unavailable. Add it again to preview it."}
+            </p>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+function shopOpenDays(hours: string): Set<string> {
+  const daySet = new Set<string>();
+  const prefix = hours.split("·")[0]?.trim() ?? "";
+  if (/sun/i.test(prefix) && !/mon/i.test(prefix)) {
+    daySet.add("Sun");
+    return daySet;
+  }
+  const rangeMatch = prefix.match(/(\w+)\s*[–-]\s*(\w+)/);
+  if (rangeMatch) {
+    const start = DAY_NAMES.findIndex((d) => d.toLowerCase() === rangeMatch[1]!.toLowerCase());
+    const end = DAY_NAMES.findIndex((d) => d.toLowerCase() === rangeMatch[2]!.toLowerCase());
+    if (start !== -1 && end !== -1) {
+      let i = start;
+      while (true) {
+        daySet.add(DAY_NAMES[i]!);
+        if (i === end) break;
+        i = (i + 1) % 7;
+      }
+    }
+  } else {
+    for (const d of DAY_NAMES) {
+      if (prefix.toLowerCase().includes(d.toLowerCase())) daySet.add(d);
+    }
+  }
+  return daySet;
+}
+
+function shopAvailability(shop: Shop, now = new Date()) {
+  if (!shop.openingTime || !shop.closingTime) return { open: true, label: "Open" };
+  const todayName = DAY_NAMES[now.getDay()];
+  const openDays = shopOpenDays(shop.hours);
+  if (!openDays.has(todayName!)) return { open: false, label: "Closed" };
+  const toMinutes = (value: string) => {
+    const [hours = 0, minutes = 0] = value.split(":").map(Number);
+    return hours * 60 + minutes;
+  };
+  const current = now.getHours() * 60 + now.getMinutes();
+  const opening = toMinutes(shop.openingTime);
+  const closing = toMinutes(shop.closingTime);
+  const open =
+    opening <= closing
+      ? current >= opening && current < closing
+      : current >= opening || current < closing;
+  return { open, label: open ? "Open" : "Closed" };
+}
+
+function paymentMethodAvailable(shop: Shop, fulfillment: Fulfillment, method: PaymentMethod) {
+  if (method === "full") return shop.payments.full;
+  if (method === "advance") return shop.payments.advance;
+  if (method === "cash_pickup") return fulfillment === "pickup" && shop.payments.cashPickup;
+  return fulfillment === "delivery" && shop.payments.cashDelivery;
+}
+
+function OrderPage() {
+  const navigate = useNavigate();
+  const {
+    shops,
+    orders,
+    addresses,
+    profile,
+    placeOrder,
+    saveAddress,
+    pendingDocs,
+    setPendingDocs,
+    clearPendingDocs,
+    pendingUploadFiles,
+    consumePendingUploadFiles,
+    uploadedFileNames,
+    setUploadedFileNames,
+    orderDraft,
+    saveOrderDraft,
+    clearOrderDraft,
+    hydrated,
+    cacheFile,
+  } = useStore();
+  const { session } = useAuth();
+
+  const [step, setStep] = useState(0);
+  const [docs, setDocs] = useState<DocumentFile[]>(pendingDocs);
+  const [uploadedFiles, setUploadedFiles] = useState<Record<string, File>>({});
+  const [config, setConfig] = useState<PrintConfig>(defaultConfig);
+  const [shopId, setShopId] = useState<string>(shops[0]!.id);
+  const [fulfillment, setFulfillment] = useState<Fulfillment>("pickup");
+  const [addressId, setAddressId] = useState<string | null>(addresses[0]?.id ?? null);
+  const [newAddress, setNewAddress] = useState(false);
+  const [draft, setDraft] = useState<Omit<Address, "id">>({
+    label: "Home",
+    name: profile.name,
+    phone: profile.phone,
+    house: "",
+    street: "",
+    area: "",
+    city: "Coimbatore",
+    pincode: "",
+  });
+  const [method, setMethod] = useState<PaymentMethod>("full");
+  const [notes, setNotes] = useState("");
+  const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(null);
+  const [fulfillmentDialogOpen, setFulfillmentDialogOpen] = useState(false);
+  const [shopConfirmed, setShopConfirmed] = useState(true);
+  const [mobileShopSummaryOpen, setMobileShopSummaryOpen] = useState(false);
+  const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
+  const addMoreFilesRef = useRef<HTMLInputElement>(null);
+  const draftRestoredRef = useRef(false);
+
+  // Restore order draft after store hydration.
+  // useState initializers only run on the first render, but the store hydrates
+  // from localStorage in a useEffect (async). So we must apply the draft in a
+  // separate effect that fires once the store has hydrated.
+  useEffect(() => {
+    if (!hydrated || !orderDraft || draftRestoredRef.current) return;
+    draftRestoredRef.current = true;
+    setStep(orderDraft.step);
+    setDocs(orderDraft.docs);
+    setConfig(orderDraft.config);
+    setShopId(orderDraft.shopId);
+    setFulfillment(orderDraft.fulfillment);
+    setAddressId(orderDraft.addressId);
+    setMethod(orderDraft.method);
+    setNotes(orderDraft.notes);
+    clearOrderDraft();
+  }, [hydrated, orderDraft, clearOrderDraft]);
+
+  // Restore pendingDocs from store after hydration.
+  // useState initializers run before the store hydrates, so docs starts empty.
+  // Once hydrated, pendingDocs has the saved value — sync it into docs.
+  const pendingDocsRestoredRef = useRef(false);
+  useEffect(() => {
+    if (!hydrated || pendingDocsRestoredRef.current) return;
+    if (pendingDocs.length > 0 && docs.length === 0) {
+      pendingDocsRestoredRef.current = true;
+      setDocs(pendingDocs);
+    }
+  }, [hydrated, pendingDocs, docs.length]);
+  const [shopSearch, setShopSearch] = useState("");
+  const [shopFilters, setShopFilters] = useState({
+    openOnly: true,
+    nearest: false,
+    lowestPrice: false,
+  });
+  const shop = useMemo<Shop>(
+    () => shops.find((s) => s.id === shopId) ?? shops[0]!,
+    [shops, shopId],
+  );
+  const price = useMemo(
+    () => calculateOrderPrice(shop, docs, config, fulfillment),
+    [shop, docs, config, fulfillment],
+  );
+  const documentPrices = useMemo(
+    () => calculateDocumentPrices(shop, docs, config),
+    [shop, docs, config],
+  );
+  const split = paymentSplit(shop, price.total, method);
+  const address = addresses.find((a) => a.id === addressId) ?? null;
+  const selectedAvailability = shopAvailability(shop);
+  const previewDocument = docs.find((document) => document.id === previewDocumentId) ?? null;
+  useEffect(() => {
+    if (paymentMethodAvailable(shop, fulfillment, method)) return;
+    const replacement = (
+      ["full", "advance", "cash_pickup", "cash_delivery"] as PaymentMethod[]
+    ).find((candidate) => paymentMethodAvailable(shop, fulfillment, candidate));
+    if (replacement) setMethod(replacement);
+  }, [fulfillment, method, shop]);
+
+  // Filter and sort shops based on search, filters, and current order pricing.
+  const filteredSortedShops = useMemo(() => {
+    let result = [...shops];
+
+    // Always exclude closed shops.
+    result = result.filter((s) => shopAvailability(s).open);
+
+    // Search filter.
+    if (shopSearch.trim()) {
+      const q = shopSearch.toLowerCase();
+      result = result.filter(
+        (s) => s.name.toLowerCase().includes(q) || s.address.toLowerCase().includes(q),
+      );
+    }
+
+    // Nearest sort (by existing distanceKm field).
+    if (shopFilters.nearest) {
+      result.sort((a, b) => a.distanceKm - b.distanceKm);
+    }
+
+    // Lowest price sort (by actual calculated order total).
+    if (shopFilters.lowestPrice) {
+      result.sort((a, b) => {
+        const totalA = calculateOrderPrice(a, docs, config, fulfillment).total;
+        const totalB = calculateOrderPrice(b, docs, config, fulfillment).total;
+        return totalA - totalB;
+      });
+    }
+
+    return result;
+  }, [shops, shopSearch, shopFilters, docs, config, fulfillment]);
+
+  // Group filtered shops into pages of 3 for set-based scrolling.
+  const shopPages = useMemo(() => {
+    const pages: Shop[][] = [];
+    for (let i = 0; i < filteredSortedShops.length; i += 3) {
+      pages.push(filteredSortedShops.slice(i, i + 3));
+    }
+    return pages;
+  }, [filteredSortedShops]);
+
+  const [activeShopSet, setActiveShopSet] = useState(0);
+  const [activeCardIndex, setActiveCardIndex] = useState(0);
+  const activeShopSetRef = useRef(0);
+  const pageScrollRef = useRef<HTMLDivElement>(null);
+  const pageSentinelRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // Keep ref synchronized with state.
+  useEffect(() => {
+    activeShopSetRef.current = activeShopSet;
+  }, [activeShopSet]);
+
+  // Clamp activeShopSet when pages shrink.
+  useEffect(() => {
+    if (activeShopSet >= shopPages.length) {
+      const clamped = Math.max(0, shopPages.length - 1);
+      setActiveShopSet(clamped);
+      activeShopSetRef.current = clamped;
+    }
+  }, [shopPages.length, activeShopSet]);
+
+  // Reset dot position when the actual set of visible shop IDs changes (search/filter).
+  const shopIdsKey = filteredSortedShops.map((s) => s.id).join(",");
+  const prevShopIdsKeyRef = useRef(shopIdsKey);
+  useEffect(() => {
+    if (shopIdsKey !== prevShopIdsKeyRef.current) {
+      prevShopIdsKeyRef.current = shopIdsKey;
+      setActiveCardIndex(0);
+      setActiveShopSet(0);
+      activeShopSetRef.current = 0;
+    }
+  }, [shopIdsKey]);
+
+  // IntersectionObserver: track which SET is visible, reset card index ONLY on set change.
+  useEffect(() => {
+    const container = pageScrollRef.current;
+    const sentinels = pageSentinelRefs.current.filter(Boolean);
+    if (!container || !sentinels.length) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => (b.intersectionRatio ?? 0) - (a.intersectionRatio ?? 0));
+        if (visible[0]) {
+          const idx = Number(visible[0].target.getAttribute("data-page-idx"));
+          if (!Number.isNaN(idx) && idx !== activeShopSetRef.current) {
+            activeShopSetRef.current = idx;
+            setActiveShopSet(idx);
+            setActiveCardIndex(0);
+          }
+        }
+      },
+      { root: container, threshold: 0.6 },
+    );
+    sentinels.forEach((el) => el && observer.observe(el));
+    return () => observer.disconnect();
+  }, [shopPages]);
+
+  const addFiles = async (incoming: File[]) => {
+    if (!incoming.length) return;
+
+    // Create document entries immediately with detecting state.
+    const pendingDocs = incoming.map((file, index) => {
+      const id = `doc-${Date.now()}-${index}`;
+      return {
+        file,
+        document: {
+          id,
+          name: file.name,
+          pages: 0,
+          pageCountDetected: false,
+          detectingPages: true,
+          printConfig: { ...defaultConfig, additionalIds: [] },
+          sizeMb: Math.max(0.1, Number((file.size / 1024 / 1024).toFixed(1))),
+        },
+      };
+    });
+
+    // Add to state immediately so the UI shows "Detecting pages..."
+    const added = pendingDocs.map((item) => item.document);
+    setDocs((current) => [...current, ...added]);
+    setActiveDocumentId(added[added.length - 1]?.id ?? null);
+    setUploadedFiles((current) => ({
+      ...current,
+      ...Object.fromEntries(pendingDocs.map((item) => [item.document.id, item.file])),
+    }));
+
+    // Cache files in the store so they're available from the shopkeeper detail page.
+    for (const item of pendingDocs) {
+      cacheFile(item.document.id, item.file);
+    }
+
+    // Detect pages in parallel and update each document as it completes.
+    await Promise.all(
+      pendingDocs.map(async ({ file, document }) => {
+        try {
+          const pageInfo = await detectPageCount(file);
+          setDocs((current) =>
+            current.map((doc) =>
+              doc.id === document.id
+                ? {
+                    ...doc,
+                    pages: pageInfo.pages,
+                    pageCountDetected: pageInfo.detected,
+                    detectingPages: false,
+                  }
+                : doc,
+            ),
+          );
+        } catch {
+          setDocs((current) =>
+            current.map((doc) =>
+              doc.id === document.id
+                ? { ...doc, pages: 1, pageCountDetected: false, detectingPages: false }
+                : doc,
+            ),
+          );
+        }
+      }),
+    );
+
+    // Show final toast after all detections complete.
+    const needsReview = pendingDocs.filter((item) => !item.document.pageCountDetected).length;
+    toast.success(`${incoming.length} document${incoming.length > 1 ? "s" : ""} added`, {
+      description: needsReview
+        ? `${needsReview} file${needsReview > 1 ? "s need" : " needs"} page-count review.`
+        : "Page counts detected automatically.",
+    });
+  };
+
+  useEffect(() => {
+    if (!pendingUploadFiles.length) return;
+    const transferredFiles = consumePendingUploadFiles();
+    if (!transferredFiles.length) return;
+    void addFiles(transferredFiles);
+    // A pending upload is deliberately transient and consumed once on arrival from Home.
+  }, [pendingUploadFiles, consumePendingUploadFiles]);
+
+  // Sync docs to store so they persist across navigation/remounts.
+  useEffect(() => {
+    setPendingDocs(docs);
+  }, [docs, setPendingDocs]);
+
+  // Sync uploaded file names so the Upload Document Card can restore its success state.
+  useEffect(() => {
+    const names = docs.map((d) => d.name);
+    const prev = uploadedFileNames;
+    if (names.length !== prev.length || names.some((n, i) => n !== prev[i])) {
+      setUploadedFileNames(names);
+    }
+  }, [docs, uploadedFileNames, setUploadedFileNames]);
+
+  const selectShop = (nextShopId: string) => {
+    const nextShop = shops.find((candidate) => candidate.id === nextShopId);
+    if (!nextShop) return;
+    setShopId(nextShopId);
+    setShopConfirmed(true);
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches)
+      setMobileShopSummaryOpen(true);
+    setDocs((all) =>
+      all.map((document) => {
+        const current = document.printConfig ?? defaultConfig;
+        const paperAvailable = nextShop.paperTypes.some(
+          (paper) => paper.id === current.paperTypeId && paper.enabled,
+        );
+        return {
+          ...document,
+          printConfig: {
+            ...current,
+            paperTypeId: paperAvailable
+              ? current.paperTypeId
+              : (nextShop.paperTypes.find((paper) => paper.enabled)?.id ?? current.paperTypeId),
+            printType:
+              current.printType === "color" && !nextShop.printTypes.color
+                ? "bw"
+                : current.printType,
+            side:
+              current.side === "double" && !nextShop.printSides.double ? "single" : current.side,
+            orientation:
+              current.orientation === "landscape" && !nextShop.orientation.landscape
+                ? "portrait"
+                : current.orientation,
+            bindingId: nextShop.binding.some(
+              (option) => option.id === current.bindingId && option.enabled,
+            )
+              ? current.bindingId
+              : null,
+            additionalIds: current.additionalIds.filter((id) =>
+              nextShop.additional.some((option) => option.id === id && option.enabled),
+            ),
+          },
+        };
+      }),
+    );
+  };
+
+  const paper = shop.paperTypes.find((p) => p.id === config.paperTypeId);
+
+  const canContinue = () => {
+    if (step === 0) return docs.length > 0;
+    if (step === 1) return shopConfirmed;
+    if (step === 2) return fulfillment === "pickup" || !!address;
+    if (step === 3)
+      return (
+        (fulfillment === "pickup" || !!address) && paymentMethodAvailable(shop, fulfillment, method)
+      );
+    return true;
+  };
+
+  const stepBlockReason = () => {
+    if (step === 0) return "Add at least one document to continue.";
+    if (step === 1) return "Select a shop to continue.";
+    if (step === 2) return "Select a delivery address.";
+    if (step === 3) return "Choose a payment method accepted by this shop.";
+    return "";
+  };
+
+  const confirm = () => {
+    if (fulfillment === "delivery" && !address) {
+      toast.error("Select a delivery address before placing the order.");
+      return;
+    }
+    if (!paymentMethodAvailable(shop, fulfillment, method)) {
+      toast.error("Choose a payment method accepted by this shop.");
+      return;
+    }
+    if (session?.role !== "customer") {
+      saveOrderDraft({ step, docs, config, shopId, fulfillment, addressId, method, notes });
+      toast.error("Sign in with a customer account before placing an order.");
+      navigate({ to: "/auth/customer/login" });
+      return;
+    }
+    const now = new Date().toISOString();
+    const primaryConfig = docs[0]?.printConfig ?? config;
+    const primaryPaper = shop.paperTypes.find((item) => item.id === primaryConfig.paperTypeId);
+    const order: Order = {
+      id: newOrderId(orders),
+      customerName: profile.name,
+      customerPhone: profile.phone,
+      shopId: shop.id,
+      shopName: shop.name,
+      documents: docs,
+      config: primaryConfig,
+      configLabels: {
+        paper: primaryPaper?.name ?? "A4 Paper",
+        printType: primaryConfig.printType === "bw" ? "Black & White" : "Colour",
+        side: primaryConfig.side === "single" ? "Single Side" : "Double Side",
+        orientation: primaryConfig.orientation === "portrait" ? "Portrait" : "Landscape",
+        binding: shop.binding.find((b) => b.id === primaryConfig.bindingId)?.name ?? "None",
+        additional: primaryConfig.additionalIds
+          .map((id) => shop.additional.find((a) => a.id === id)?.name)
+          .filter((n): n is string => !!n),
+      },
+      fulfillment,
+      address: fulfillment === "delivery" ? address : null,
+      price,
+      paymentMethod: method,
+      amountPaid: split.paidNow,
+      balance: split.balance,
+      paymentStatus: split.paidNow === 0 ? "unpaid" : split.balance === 0 ? "paid" : "partial",
+      status: "NEW",
+      createdAt: now,
+      updatedAt: now,
+      timeline: [{ status: "NEW", at: now }],
+    };
+    placeOrder(order);
+    clearPendingDocs();
+    setUploadedFileNames([]);
+    toast.success("Order placed", { description: `${order.id} sent to ${shop.name}` });
+    navigate({ to: "/order-confirmation/$orderId", params: { orderId: order.id } });
+  };
+
+  return (
+    <CustomerShell>
+      <div className="container-page ">
+        {/* <h1 className="text-page-title font-bold">XEROXMATE</h1> */}
+        {/* <p className="mt-2 text-sm text-muted-foreground">
+          Step {step + 1} of {STEP_TITLES.length} — {STEP_TITLES[step]}
+        </p>
+        <div className="mt-6">
+          <StepRail step={step} />
+        </div> */}
+
+        <div className={cn("mt-6 grid gap-6", step === 1 && "md:grid-cols-[1fr_340px]")}>
+          <div className="space-y-4">
+            {step === 0 && (
+              <section className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+                <div
+                  className={cn(
+                    "md:sticky md:top-6 md:self-start",
+                    docs.length > 0 && "hidden md:block",
+                  )}
+                >
+                  <SectionCard
+                    title="Upload documents"
+                    hint="Add one or more files. You can update each file’s print settings alongside it."
+                  >
+                    <DocumentUploadCard
+                      multiple
+                      onFilesSelected={addFiles}
+                      onFilesRemoved={() => {
+                        setDocs([]);
+                        setUploadedFiles({});
+                        setActiveDocumentId(null);
+                      }}
+                      initialFileNames={uploadedFileNames}
+                      hydrated={hydrated}
+                      className="p-0 shadow-none"
+                    />
+                  </SectionCard>
+                </div>
+                <SectionCard
+                  title="Documents + specifications"
+                  hint="Every file has its own print settings and quote."
+                >
+                  <div className=" space-y-4  ">
+                    {docs.map((document, index) => (
+                      <FilePrintOptions
+                        key={document.id}
+                        document={document}
+                        index={index}
+                        shop={shop}
+                        fallback={config}
+                        onSelect={() => setActiveDocumentId(document.id)}
+                        onChange={(updater) =>
+                          setDocs((all) =>
+                            all.map((item) =>
+                              item.id === document.id
+                                ? {
+                                    ...item,
+                                    printConfig: updater(item.printConfig ?? defaultConfig),
+                                  }
+                                : item,
+                            ),
+                          )
+                        }
+                        onInstructionsChange={(instructions) =>
+                          setDocs((all) =>
+                            all.map((item) =>
+                              item.id === document.id ? { ...item, instructions } : item,
+                            ),
+                          )
+                        }
+                        onPreview={() => setPreviewDocumentId(document.id)}
+                        onRemove={() => {
+                          setDocs((all) => {
+                            const next = all.filter((item) => item.id !== document.id);
+                            setActiveDocumentId((current) =>
+                              current === document.id
+                                ? (next[next.length - 1]?.id ?? null)
+                                : current,
+                            );
+                            return next;
+                          });
+                          setUploadedFiles((all) => {
+                            const { [document.id]: _removed, ...rest } = all;
+                            return rest;
+                          });
+                        }}
+                      />
+                    ))}
+                    {!docs.length && (
+                      <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                        Upload a document to add its print settings here.
+                      </div>
+                    )}
+                  </div>
+                  {docs.length > 0 && (
+                    <div className="mt-4 md:hidden">
+                      <input
+                        ref={addMoreFilesRef}
+                        className="sr-only"
+                        type="file"
+                        accept={ACCEPTED_UPLOAD_TYPES}
+                        multiple
+                        onChange={(event) => {
+                          const selected = Array.from(event.target.files ?? []);
+                          event.currentTarget.value = "";
+                          const unsupported = selected.find((file) => !isSupportedUpload(file));
+                          if (unsupported) {
+                            toast.error(`${unsupported.name} is not a supported file type.`);
+                            return;
+                          }
+                          void addFiles(selected);
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => addMoreFilesRef.current?.click()}
+                      >
+                        <Upload className="h-4 w-4" /> Add Files
+                      </Button>
+                    </div>
+                  )}
+                  <div className="mt-5 flex items-center justify-between gap-3 border-t border-border pt-5">
+                    <Button variant="outline" onClick={() => setStep(0)} disabled>
+                      <ChevronLeft className="h-4 w-4" /> Back
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        if (!canContinue()) {
+                          toast.error(stepBlockReason());
+                          return;
+                        }
+                        setStep(1);
+                      }}
+                    >
+                      Continue <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </SectionCard>
+              </section>
+            )}
+
+            {step === 1 && (
+              <div className=" space-y-6 lg:sticky lg:top-24 lg:self-start">
+                <SectionCard
+                  title="Select Nearby print shops to Continue"
+                  hint="Prices update instantly based on the shop you pick."
+                >
+                  {/* Search + Filter */}
+                  <div className="mb-4 flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="Search shops..."
+                      value={shopSearch}
+                      onChange={(e) => setShopSearch(e.target.value)}
+                      className="h-9 flex-1 min-w-0 rounded-md border border-border bg-card px-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+                    />
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="icon" className="h-9 w-9 shrink-0">
+                          <Filter className="h-4 w-4" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-56 p-3">
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-subtle">
+                          Filter shops
+                        </p>
+                        <div className="space-y-2">
+                          {(
+                            [
+                              { key: "nearest" as const, label: "Nearest" },
+                              { key: "lowestPrice" as const, label: "Lowest price" },
+                            ] as const
+                          ).map((opt) => (
+                            <label
+                              key={opt.key}
+                              className="flex cursor-pointer items-center gap-2 text-sm"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={shopFilters[opt.key]}
+                                onChange={(e) =>
+                                  setShopFilters((f) => ({
+                                    ...f,
+                                    [opt.key]: e.target.checked,
+                                  }))
+                                }
+                                className="h-4 w-4 rounded border-border accent-primary"
+                              />
+                              {opt.label}
+                            </label>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Shop cards with 3-dot page indicator */}
+                  <div
+                    className="flex gap-2 sm:gap-3"
+                    style={{ height: "min(calc(100vh - 320px), 335px)" }}
+                  >
+                    {/* 3 dots — represent card position inside current set */}
+                    <div className="relative flex w-5 shrink-0 flex-col items-center justify-center">
+                      <div className="flex flex-col items-center gap-2">
+                        {[0, 1, 2].map((dotIdx) => {
+                          const isActive = dotIdx === activeCardIndex;
+                          return (
+                            <span
+                              key={dotIdx}
+                              data-dot={dotIdx}
+                              data-active={isActive}
+                              className="rounded-full"
+                              style={{
+                                display: "block",
+                                width: isActive ? 6 : 8,
+                                height: isActive ? 6 : 8,
+                                backgroundColor: isActive
+                                  ? "var(--color-primary)"
+                                  : "var(--color-white)",
+                                opacity: isActive ? 1 : 0.5,
+                                transform: isActive ? "scale(2)" : "scale(1)",
+                                transition: "all 300ms ease-out",
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Shop cards — scroll-snap container, one page at a time */}
+                    <div
+                      ref={pageScrollRef}
+                      className="flex-1 overflow-y-auto scrollbar-hide pb-1 space-y-10"
+                      style={{ scrollSnapType: "y mandatory" }}
+                    >
+                      {shopPages.length === 0 && (
+                        <p className="py-8 text-center text-sm text-muted-foreground">
+                          No open print shops found. Try changing your search or filters.
+                        </p>
+                      )}
+                      {shopPages.map((page, pageIdx) => (
+                        <div
+                          key={pageIdx}
+                          ref={(el) => {
+                            pageSentinelRefs.current[pageIdx] = el;
+                          }}
+                          data-page-idx={pageIdx}
+                          className="space-y-3"
+                          style={{ scrollSnapAlign: "start" }}
+                        >
+                          {page.map((s, cardIdx) => {
+                            const active = shopConfirmed && s.id === shopId;
+                            const availability = shopAvailability(s);
+                            const shopTotal = calculateOrderPrice(
+                              s,
+                              docs,
+                              config,
+                              fulfillment,
+                            ).total;
+                            return (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => {
+                                  selectShop(s.id);
+                                  setActiveShopSet(pageIdx);
+                                  setActiveCardIndex(cardIdx);
+                                  activeShopSetRef.current = pageIdx;
+                                }}
+                                className={cn(
+                                  "w-full rounded-lg border p-3 text-left transition-colors",
+                                  active
+                                    ? "border-primary bg-primary-light"
+                                    : "border-border bg-card hover:bg-secondary",
+                                )}
+                              >
+                                {/* Row 1: Name + Open/Closed */}
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="min-w-0 truncate text-sm font-semibold">{s.name}</p>
+                                  <span
+                                    className={cn(
+                                      "shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold",
+                                      availability.open
+                                        ? "bg-success-light text-success"
+                                        : "bg-destructive/10 text-destructive",
+                                    )}
+                                  >
+                                    {availability.label}
+                                  </span>
+                                </div>
+
+                                {/* Row 2: Address */}
+                                <div className="mt-1.5 flex items-center justify-between gap-3">
+                                  <p className="mt-1.5 text-xs text-muted-foreground">
+                                    {s.address}
+                                  </p>
+
+                                  <p className="text-xs text-muted-foreground">{s.hours}</p>
+                                </div>
+
+                                {/* Row 3: Rating + Fulfilment */}
+                                <div className="mt-1.5 flex justify-between  items-center gap-2 text-xs">
+                                  <div className="flex justify-center items-center gap-2 text-xs">
+                                    <span className="font-medium">★ {s.rating}</span>
+                                    <span className="text-muted-foreground">
+                                      {s.delivery.enabled ? "Pickup + Delivery" : "Pickup only"}
+                                    </span>
+                                  </div>
+                                  <span className="shrink-0 text-sm font-semibold">
+                                    Total Amount : {inr(shopTotal)}
+                                  </span>
+                                </div>
+
+                                {/* Row 4: Hours + Total */}
+                                {/* <div className="mt-1.5 flex items-center justify-between gap-3">
+                                  <p className="text-xs text-muted-foreground">{s.hours}</p>
+                                  <span className="shrink-0 text-sm font-semibold">
+                                    Total Amount : {inr(shopTotal)}
+                                  </span>
+                                </div> */}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-5 border-t border-border pt-5">
+                    <Button variant="outline" onClick={() => setStep(0)}>
+                      <ChevronLeft className="h-4 w-4" /> Back
+                    </Button>
+                  </div>
+                </SectionCard>
+              </div>
+            )}
+
+            <Dialog
+              open={fulfillmentDialogOpen}
+              onOpenChange={(open) => {
+                setFulfillmentDialogOpen(open);
+                if (!open && step === 2) setStep(1);
+              }}
+            >
+              <DialogContent className="max-h-[200vh] py-15 overflow-y-auto sm:max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>How would you like to receive your order?</DialogTitle>
+                  <DialogDescription>{shop.name}</DialogDescription>
+                </DialogHeader>
+                <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setFulfillment("pickup")}
+                    className={cn(
+                      "rounded-lg border p-4 text-left flex flex-col gap-4 justify-center items-center",
+                      fulfillment === "pickup"
+                        ? "border-primary bg-primary-light"
+                        : "border-border hover:bg-secondary",
+                    )}
+                  >
+                    <StoreIcon className="h-5 w-5 text-primary" />
+                    <p className="mt-3 sm:mt-0 text-sm font-semibold">Pickup at shop</p>
+                    <p className="text-xs text-muted-foreground">{shop.hours}</p>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!shop.delivery.enabled}
+                    onClick={() => setFulfillment("delivery")}
+                    className={cn(
+                      "rounded-lg border  flex flex-col  gap-4 justify-center items-center",
+                      fulfillment === "delivery"
+                        ? "border-primary bg-primary-light"
+                        : "border-border hover:bg-secondary",
+                      !shop.delivery.enabled && "cursor-not-allowed opacity-40",
+                    )}
+                  >
+                    <Truck className="h-5 w-5 text-primary" />
+                    <p className="mt-3 sm:mt-0 text-sm font-semibold">Home delivery</p>
+                    <p className="text-xs text-muted-foreground">
+                      {shop.delivery.enabled
+                        ? `2 to 4 hours · ${inr(shop.delivery.fee)} fee${
+                            shop.delivery.freeAbove
+                              ? ` (free above ${inr(shop.delivery.freeAbove)})`
+                              : ""
+                          }`
+                        : "This shop does not deliver"}
+                    </p>
+                  </button>
+                </div>
+                {fulfillment === "delivery" && (
+                  <div className="mt-5">
+                    <h3 className="text-sm mb-2 font-semibold">Delivery address</h3>
+                    <div className="space-y-3">
+                      {addresses.map((a) => (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={() => {
+                            setAddressId(a.id);
+                            setNewAddress(false);
+                          }}
+                          className={cn(
+                            "w-full rounded-lg border p-4 text-left",
+                            addressId === a.id && !newAddress
+                              ? "border-primary bg-primary-light"
+                              : "border-border hover:bg-secondary",
+                          )}
+                        >
+                          <p className="text-sm font-semibold">
+                            {a.label} · {a.name}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {a.house}, {a.street}, {a.area}, {a.city} - {a.pincode}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">{a.phone}</p>
+                        </button>
+                      ))}
+                      <Button variant="outline" onClick={() => setNewAddress((v) => !v)}>
+                        {newAddress ? "Cancel" : "Add a new address"}
+                      </Button>
+                      {newAddress && (
+                        <div className="grid gap-3 rounded-lg border border-border p-4 sm:grid-cols-2">
+                          {(
+                            [
+                              ["label", "Label"],
+                              ["name", "Full name"],
+                              ["phone", "Phone"],
+                              ["house", "House / Flat"],
+                              ["street", "Street"],
+                              ["area", "Area"],
+                              ["city", "City"],
+                              ["pincode", "Pincode"],
+                            ] as const
+                          ).map(([key, label]) => (
+                            <div key={key}>
+                              <Label className="text-xs font-semibold text-subtle">{label}</Label>
+                              <Input
+                                className="mt-2"
+                                value={draft[key]}
+                                onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
+                              />
+                            </div>
+                          ))}
+                          <div className="sm:col-span-2">
+                            <Button
+                              onClick={() => {
+                                if (!draft.name || !draft.pincode) {
+                                  toast.error("Add at least a name and pincode");
+                                  return;
+                                }
+                                const id = `addr-${Date.now()}`;
+                                saveAddress({ id, ...draft });
+                                setAddressId(id);
+                                setNewAddress(false);
+                                toast.success("Address saved");
+                              }}
+                            >
+                              Save address
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <div className="mt-5 flex justify-end">
+                  <Button
+                    onClick={() => {
+                      if (fulfillment === "pickup" || address) {
+                        setFulfillmentDialogOpen(false);
+                        setStep(3);
+                      } else toast.error("Select a delivery address first.");
+                    }}
+                  >
+                    Continue
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            {step === 3 && (
+              <div className="flex flex-col gap-6 lg:flex-row">
+                <div className="w-full space-y-6 lg:w-1/2 lg:sticky lg:top-24 lg:self-start">
+                  <SectionCard title="Payment method" hint={`Accepted by ${shop.name}`}>
+                    <div className="space-y-2 grid-cols-2 gap-3 grid">
+                      {(
+                        [
+                          ["full", paymentMethodAvailable(shop, fulfillment, "full")],
+                          ["advance", paymentMethodAvailable(shop, fulfillment, "advance")],
+                          ["cash_pickup", paymentMethodAvailable(shop, fulfillment, "cash_pickup")],
+                          [
+                            "cash_delivery",
+                            paymentMethodAvailable(shop, fulfillment, "cash_delivery"),
+                          ],
+                        ] as const
+                      ).map(([key, allowed]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          disabled={!allowed}
+                          onClick={() => setMethod(key as PaymentMethod)}
+                          className={cn(
+                            "flex w-full items-start gap-3 rounded-lg border p-4 text-left",
+                            method === key
+                              ? "border-primary bg-primary-light"
+                              : "border-border hover:bg-secondary",
+                            !allowed && "cursor-not-allowed opacity-40",
+                          )}
+                        >
+                          <Wallet className="mt-0.5 h-5 w-5 text-primary" />
+                          <span>
+                            <span className="block text-sm font-semibold">
+                              {paymentMethodLabel[key as PaymentMethod]}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="mt-5">
+                      <Label className="text-xs font-semibold text-subtle">
+                        NOTES FOR THE SHOP (OPTIONAL)
+                      </Label>
+                      <Textarea
+                        className="mt-2"
+                        rows={3}
+                        placeholder="e.g. Print the cover page in colour"
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                      />
+                    </div>
+                  </SectionCard>
+
+                  <div className="md:card-surface p-5 md:px-6 md:py-4 flex flex-col gap-2">
+                    <h2 className="text-base font-semibold">Print shop</h2>
+                    <p className="mt-3 inline-flex items-center gap-2 text-sm font-medium">
+                      <StoreIcon className="h-4 w-4 text-primary" /> {shop.name}
+                    </p>
+                    <p className="mt-2 inline-flex items-start gap-2 text-sm text-muted-foreground">
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0" /> {shop.address}
+                    </p>
+                    <p className="mt-2 inline-flex items-center gap-2 text-sm text-muted-foreground">
+                      <Phone className="h-4 w-4" /> {shop.phone}
+                    </p>
+                    <p className="mt-2 inline-flex items-center gap-2 text-sm text-muted-foreground">
+                      <Clock className="h-4 w-4" /> {shop.hours}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="w-full lg:w-1/2">
+                  <SectionCard title="Review your order" hint="Check everything before confirming.">
+                    <div className="mb-5 rounded-lg border border-border bg-secondary/50 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <h3 className="text-sm font-semibold">File-by-file quote</h3>
+                        <span className="text-xs text-muted-foreground">Before delivery</span>
+                      </div>
+                      <div className="mt-3 divide-y divide-border">
+                        {docs.map((document, index) => {
+                          const fileConfig = document.printConfig ?? config;
+                          const filePaper = shop.paperTypes.find(
+                            (item) => item.id === fileConfig.paperTypeId,
+                          );
+                          return (
+                            <div
+                              key={document.id}
+                              className="flex items-center justify-between gap-4 py-2.5 text-sm"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate font-medium">{document.name}</p>
+                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                  {documentPrices[index]?.billablePages ?? 0} printed pages ·{" "}
+                                  {fileConfig.copies} copy(ies) ·{" "}
+                                  {fileConfig.printType === "bw" ? "B/W" : "Colour"} ·{" "}
+                                  {fileConfig.side === "double" ? "Front & back" : "Front only"}
+                                </p>
+                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                  {filePaper?.name ?? "Paper"} ·{" "}
+                                  {fileConfig.bindingId
+                                    ? shop.binding.find((item) => item.id === fileConfig.bindingId)
+                                        ?.name
+                                    : "No binding"}
+                                  {fileConfig.additionalIds.length
+                                    ? ` · ${fileConfig.additionalIds
+                                        .map(
+                                          (id) =>
+                                            shop.additional.find((item) => item.id === id)?.name,
+                                        )
+                                        .filter(Boolean)
+                                        .join(", ")}`
+                                    : ""}
+                                </p>
+                                {document.instructions && (
+                                  <p className="mt-1 text-xs text-primary">
+                                    Note: {document.instructions}
+                                  </p>
+                                )}
+                              </div>
+                              <span className="shrink-0 font-semibold">
+                                {inr(documentPrices[index]?.total ?? 0)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <dl className="divide-y divide-border text-sm">
+                      {(
+                        [
+                          ["Shop", shop.name],
+                          [
+                            "Documents",
+                            `${docs.length} file(s) · ${docs.reduce((s, d) => s + d.pages, 0)} pages`,
+                          ],
+                          [
+                            "Delivery Option",
+                            fulfillment === "pickup" ? "Pickup at shop" : "Home delivery",
+                          ],
+                          [
+                            "Address",
+                            fulfillment === "delivery" && address
+                              ? `${address.house}, ${address.street}, ${address.area}, ${address.city} - ${address.pincode}`
+                              : "—",
+                          ],
+                          ["Payment", paymentMethodLabel[method]],
+                          ["Notes", notes || "—"],
+                        ] as const
+                      ).map(([k, v]) => (
+                        <div key={k} className="flex justify-between gap-6 py-2.5">
+                          <dt className="text-muted-foreground">{k}</dt>
+                          <dd className="text-right font-medium capitalize">{v}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <div className="mt-5 rounded-lg border border-border bg-secondary/50 p-4 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Documents</span>
+                        <span className="font-medium">{inr(price.total - price.delivery)}</span>
+                      </div>
+                      <div className="mt-2 flex justify-between">
+                        <span className="text-muted-foreground">Delivery</span>
+                        <span className="font-medium">{inr(price.delivery)}</span>
+                      </div>
+                      <div className="mt-3 flex justify-between border-t border-border pt-3 text-base font-bold">
+                        <span>Total</span>
+                        <span>{inr(price.total)}</span>
+                      </div>
+                      {method === "advance" && (
+                        <>
+                          <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+                            <span>Pay Advance now</span>
+                            <span>{inr(split.paidNow)}</span>
+                          </div>
+                          <div className="mt-1 flex justify-between text-xs text-muted-foreground">
+                            <span>
+                              Remaining on {fulfillment === "pickup" ? "pickup" : "delivery"}
+                            </span>
+                            <span>{inr(split.balance)}</span>
+                          </div>
+                        </>
+                      )}
+                      {method === "cash_pickup" && (
+                        <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+                          <span>Pay at pickup</span>
+                          <span>{inr(price.total)}</span>
+                        </div>
+                      )}
+                      {method === "cash_delivery" && (
+                        <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+                          <span>Pay on delivery</span>
+                          <span>{inr(price.total)}</span>
+                        </div>
+                      )}
+                      {method === "full" && (
+                        <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+                          <span>Paid in full</span>
+                          <span>{inr(price.total)}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-5 flex items-center justify-between gap-3 border-t border-border pt-5">
+                      <Button variant="outline" onClick={() => setStep(1)}>
+                        <ChevronLeft className="h-4 w-4" /> Back
+                      </Button>
+                      <Button onClick={confirm} disabled={docs.length === 0}>
+                        Confirm & place order
+                      </Button>
+                    </div>
+                  </SectionCard>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {step === 1 && (
+            <aside className="sticky top-24 hidden self-start md:block">
+              <div className="card-surface p-5">
+                {shopConfirmed ? (
+                  <ShopSummaryPanel
+                    shop={shop}
+                    availability={selectedAvailability}
+                    docs={docs}
+                    config={config}
+                    fulfillment={fulfillment}
+                    onContinue={() => {
+                      setStep(2);
+                      setFulfillmentDialogOpen(true);
+                    }}
+                  />
+                ) : (
+                  <div className="rounded-lg border border-dashed border-border p-4 text-center">
+                    <p className="text-sm font-semibold">Select a shop to continue</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Its live services and prices will appear here.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </aside>
+          )}
+        </div>
+        <Dialog
+          open={mobileShopSummaryOpen && shopConfirmed}
+          onOpenChange={setMobileShopSummaryOpen}
+        >
+          <DialogContent className="max-h-[90vh] overflow-y-auto p-4 sm:max-w-md sm:p-6 md:hidden">
+            <DialogHeader>
+              <DialogTitle>Selected shop details</DialogTitle>
+              <DialogDescription>
+                Review pricing before choosing pickup or delivery.
+              </DialogDescription>
+            </DialogHeader>
+            <ShopSummaryPanel
+              shop={shop}
+              availability={selectedAvailability}
+              docs={docs}
+              config={config}
+              fulfillment={fulfillment}
+              onContinue={() => {
+                setMobileShopSummaryOpen(false);
+                setStep(2);
+                setFulfillmentDialogOpen(true);
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+        <DocumentPreviewDialog
+          document={previewDocument}
+          file={previewDocument ? uploadedFiles[previewDocument.id] : undefined}
+          onOpenChange={(open) => {
+            if (!open) setPreviewDocumentId(null);
+          }}
+        />
+      </div>
+    </CustomerShell>
+  );
+}
