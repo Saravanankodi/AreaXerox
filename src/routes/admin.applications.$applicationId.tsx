@@ -9,6 +9,8 @@ import { useAuth } from "@/lib/auth";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
+import { approveApplication, rejectApplication } from "@/services/admin.service";
+
 export const Route = createFileRoute("/admin/applications/$applicationId")({
   component: AdminApplicationDetail,
 });
@@ -56,19 +58,25 @@ function AdminApplicationDetail() {
     );
   }
 
-  const approve = () => {
+  const approve = async () => {
     if (processing) return;
     setProcessing(true);
-    updateShopkeeperApplication(application.id, { accountStatus: "active" });
-    updateAccount(application.accountId, { accountStatus: "active" });
-    toast.success("Application approved", {
-      description: `${application.shopName} is now active.`,
-    });
-    navigate({ to: "/admin" });
-    setProcessing(false);
+    try {
+      await approveApplication(application.id);
+      updateShopkeeperApplication(application.id, { accountStatus: "active" });
+      updateAccount(application.accountId, { accountStatus: "active" });
+      toast.success("Application approved", {
+        description: `${application.shopName} is now active.`,
+      });
+      navigate({ to: "/admin" });
+    } catch (err: any) {
+      toast.error(err.message || "Failed to approve application.");
+    } finally {
+      setProcessing(false);
+    }
   };
 
-  const reject = (event: FormEvent) => {
+  const reject = async (event: FormEvent) => {
     event.preventDefault();
     if (processing) return;
     if (!rejectReason.trim()) {
@@ -76,14 +84,20 @@ function AdminApplicationDetail() {
       return;
     }
     setProcessing(true);
-    updateShopkeeperApplication(application.id, {
-      accountStatus: "rejected",
-      rejectionReason: rejectReason.trim(),
-    });
-    updateAccount(application.accountId, { accountStatus: "rejected" });
-    toast.success("Application rejected");
-    navigate({ to: "/admin" });
-    setProcessing(false);
+    try {
+      await rejectApplication(application.id, rejectReason.trim());
+      updateShopkeeperApplication(application.id, {
+        accountStatus: "rejected",
+        rejectionReason: rejectReason.trim(),
+      });
+      updateAccount(application.accountId, { accountStatus: "rejected" });
+      toast.success("Application rejected");
+      navigate({ to: "/admin" });
+    } catch (err: any) {
+      toast.error(err.message || "Failed to reject application.");
+    } finally {
+      setProcessing(false);
+    }
   };
 
   const hours = `${application.services.businessHoursFrom} – ${application.services.businessHoursTo}`;

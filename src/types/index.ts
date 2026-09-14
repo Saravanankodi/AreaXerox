@@ -25,7 +25,7 @@ export type AccountStatus = "pending" | "active" | "rejected" | "suspended" | "d
 export interface Account {
   id: string;
   email: string;
-  passwordHash: string;
+  passwordHash?: string;
   role: AccountRole;
   registrationStatus: RegistrationStatus;
   accountStatus: AccountStatus;
@@ -202,6 +202,7 @@ export interface TimelineEntry {
 
 export interface Order {
   id: string;
+  customerId?: string;
   customerName: string;
   customerPhone: string;
   shopId: string;

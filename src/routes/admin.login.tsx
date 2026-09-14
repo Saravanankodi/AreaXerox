@@ -1,11 +1,13 @@
 import { createFileRoute, Link, useNavigate } from "@/lib/navigation";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { ShieldCheck, Printer } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
+import { signInUser, getAccountByUid, registerNewAccount } from "@/services/auth.service";
+import { fetchAllAccounts } from "@/services/admin.service";
 
 export const Route = createFileRoute("/admin/login")({
   component: AdminLoginPage,
@@ -13,66 +15,80 @@ export const Route = createFileRoute("/admin/login")({
 
 function AdminLoginPage() {
   const navigate = useNavigate();
-  const { signIn, getAllAccounts, createAccount } = useAuth();
+  const { signIn, refreshSession } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoading(true);
 
     if (!email.includes("@") || password.length < 8) {
-      toast.error("Enter a valid email and password.");
+      toast.error("Enter a valid email and password (min 8 chars).");
       setLoading(false);
       return;
     }
 
-    // Auto-create admin account if it doesn't exist (demo convenience)
-    let accounts = getAllAccounts();
-    let adminAccount = accounts.find(
-      (a) => a.email.toLowerCase() === email.toLowerCase() && a.role === "admin",
-    );
+    try {
+      // First try signing in
+      let user;
+      try {
+        user = await signInUser(email, password);
+      } catch (signInErr: any) {
+        // If user not found, check if this is the first admin setup
+        if (
+          signInErr.code === "auth/user-not-found" ||
+          signInErr.code === "auth/invalid-credential"
+        ) {
+          const allAccounts = await fetchAllAccounts();
+          const hasAdmin = allAccounts.some((a) => a.role === "admin");
+          if (!hasAdmin) {
+            // Bootstrap initial admin
+            const regRes = await registerNewAccount(email, password, "admin", "Admin");
+            if (typeof regRes !== "string") {
+              user = regRes.user;
+              toast.success("Initial admin account created!");
+            } else {
+              toast.error(regRes);
+              setLoading(false);
+              return;
+            }
+          } else {
+            toast.error("Invalid email or password.");
+            setLoading(false);
+            return;
+          }
+        } else {
+          throw signInErr;
+        }
+      }
 
-    if (!adminAccount) {
-      const result = createAccount(email, password, "admin", "Admin");
-      if (typeof result === "string") {
-        // Account exists with different role
-        toast.error("This email is registered as a non-admin account.");
+      const account = await getAccountByUid(user.uid);
+      if (!account || account.role !== "admin") {
+        toast.error("Access denied. Admin privileges required.");
         setLoading(false);
         return;
       }
-      adminAccount = result;
-    }
 
-    // Verify password
-    const hashFn = (pw: string) => {
-      let hash = 0;
-      for (let i = 0; i < pw.length; i++) {
-        const char = pw.charCodeAt(i);
-        hash = (hash << 5) - hash + char;
-        hash |= 0;
-      }
-      return `h_${Math.abs(hash).toString(36)}_${pw.length}`;
-    };
+      signIn({
+        accountId: account.id,
+        role: "admin",
+        email: account.email || user.email || email,
+        name: account.name || "Admin",
+        registrationStatus: "complete",
+        accountStatus: "active",
+      });
 
-    if (adminAccount.passwordHash !== hashFn(password)) {
-      toast.error("Incorrect password.");
+      await refreshSession();
+      toast.success("Welcome, admin");
+      navigate({ to: "/admin" });
+    } catch (err: any) {
+      console.error("Admin login error:", err);
+      toast.error(err.message || "Sign in failed.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    signIn({
-      accountId: adminAccount.id,
-      role: "admin",
-      email: adminAccount.email,
-      name: "Admin",
-      registrationStatus: "complete",
-      accountStatus: "active",
-    });
-    toast.success("Welcome, admin");
-    navigate({ to: "/admin" });
-    setLoading(false);
   };
 
   return (
@@ -113,10 +129,6 @@ function AdminLoginPage() {
             {loading ? "Signing in..." : "Sign in"}
           </Button>
         </form>
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          First time? Enter any email and password (min 8 chars) — an admin account will be created
-          automatically.
-        </p>
         <p className="mt-4 text-center text-sm text-muted-foreground">
           <Link to="/" className="font-semibold text-primary hover:underline">
             Back to home

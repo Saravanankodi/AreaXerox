@@ -1,3 +1,5 @@
+"use client";
+
 import {
   createContext,
   useCallback,
@@ -9,7 +11,6 @@ import {
   type ReactNode,
 } from "react";
 import type {
-  Account,
   Address,
   CustomerProfile,
   DocumentFile,
@@ -21,9 +22,57 @@ import type {
   ShopkeeperProfile,
   SupportTicket,
 } from "@/types";
-import { seedAddresses, seedOrders, seedProfile, seedShops } from "./seed";
+import { useAuth } from "./auth";
+import { listenShops, updateShopInDb, saveShop } from "@/services/shop.service";
+import {
+  listenOrders,
+  listenCustomerOrders,
+  listenShopOrders,
+  placeOrderInDb,
+  advanceOrderStatusInDb,
+  collectBalanceInDb,
+} from "@/services/order.service";
+import {
+  getUserProfile,
+  updateUserProfile,
+  listenUserAddresses,
+  saveUserAddress,
+  deleteUserAddress,
+  listenUserTickets,
+  addUserTicket,
+} from "@/services/user.service";
+import {
+  listenApplications,
+  approveApplication,
+  rejectApplication,
+} from "@/services/admin.service";
+import {
+  submitShopkeeperApplication as submitAppInDb,
+  updateShopkeeperApplication as updateAppInDb,
+  saveShopkeeperProfile as saveProfileInDb,
+} from "@/services/shopkeeper.service";
 
-const STORAGE_KEY = "omx-state-v1";
+const fallbackShop: Shop = {
+  id: "default-shop",
+  name: "Print Shop",
+  ownerName: "Manager",
+  phone: "",
+  email: "",
+  address: "Local Store",
+  hours: "9:00 AM – 9:00 PM",
+  rating: 5,
+  distanceKm: 1,
+  prepMinutes: 20,
+  pickup: true,
+  paperTypes: [],
+  printTypes: { bw: true, color: true },
+  printSides: { single: true, double: true },
+  orientation: { portrait: true, landscape: true },
+  binding: [],
+  additional: [],
+  delivery: { enabled: true, fee: 30, freeAbove: 200, etaMinutes: "30 min", areas: [] },
+  payments: { full: true, advance: true, cashPickup: true, cashDelivery: true, advancePercent: 50 },
+};
 
 interface AppState {
   shops: Shop[];
@@ -39,13 +88,20 @@ interface AppState {
   shopkeeperProfiles: Record<string, ShopkeeperProfile>;
 }
 
+const initialProfile: CustomerProfile = {
+  name: "",
+  email: "",
+  phone: "",
+  alternatephone: "",
+};
+
 const initialState: AppState = {
-  shops: seedShops,
-  orders: seedOrders,
-  addresses: seedAddresses,
-  profile: seedProfile,
+  shops: [],
+  orders: [],
+  addresses: [],
+  profile: initialProfile,
   tickets: [],
-  activeShopId: seedShops[0]!.id,
+  activeShopId: "",
   pendingDocs: [],
   uploadedFileNames: [],
   orderDraft: null,
@@ -56,6 +112,7 @@ const initialState: AppState = {
 interface StoreValue extends AppState {
   hydrated: boolean;
   activeShop: Shop;
+  setActiveShopId: (id: string) => void;
   updateShop: (shopId: string, updater: (shop: Shop) => Shop) => void;
   placeOrder: (order: Order) => void;
   advanceOrder: (orderId: string, status: OrderStatus) => void;
@@ -84,47 +141,150 @@ interface StoreValue extends AppState {
 const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
+  const { session } = useAuth();
   const [state, setState] = useState<AppState>(initialState);
   const [pendingUploadFiles, setPendingUploadFilesState] = useState<File[]>([]);
   const pendingUploadFilesRef = useRef<File[]>([]);
   const uploadedFilesMapRef = useRef<Map<string, File>>(new Map());
   const [hydrated, setHydrated] = useState(false);
 
+  // 1. Real-time shops listener
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const saved = JSON.parse(raw) as AppState;
-        // Merge shops: seed is the source of truth for the list; user modifications are preserved.
-        const savedById = new Map(saved.shops.map((s) => [s.id, s]));
-        const merged = initialState.shops.map((seed) => savedById.get(seed.id) ?? seed);
-        setState({ ...initialState, ...saved, shops: merged });
+    const unsubShops = listenShops((loadedShops) => {
+      setState((prev) => ({
+        ...prev,
+        shops: loadedShops,
+        activeShopId: prev.activeShopId || (loadedShops[0]?.id ?? ""),
+      }));
+      setHydrated(true);
+    });
+
+    return () => unsubShops();
+  }, []);
+
+  // 2. Real-time applications listener (for admin and registration status)
+  useEffect(() => {
+    const unsubApps = listenApplications((apps) => {
+      setState((prev) => ({
+        ...prev,
+        shopkeeperApplications: apps,
+      }));
+    });
+
+    return () => unsubApps();
+  }, []);
+
+  // 3. Real-time orders listener depending on role
+  useEffect(() => {
+    if (!session) {
+      // If not logged in, listen to all orders or none
+      const unsub = listenOrders((orders) => {
+        setState((prev) => ({ ...prev, orders }));
+      });
+      return () => unsub();
+    }
+
+    let unsub: () => void;
+    if (session.role === "admin") {
+      unsub = listenOrders((orders) => {
+        setState((prev) => ({ ...prev, orders }));
+      });
+    } else if (session.role === "shopkeeper") {
+      unsub = listenOrders((orders) => {
+        setState((prev) => ({ ...prev, orders }));
+      });
+    } else {
+      // Customer
+      unsub = listenOrders((orders) => {
+        const myOrders = orders.filter(
+          (o) =>
+            o.customerId === session.accountId ||
+            (session.email && o.customerName?.toLowerCase() === session.name?.toLowerCase()),
+        );
+        setState((prev) => ({ ...prev, orders: myOrders.length ? myOrders : orders }));
+      });
+    }
+
+    return () => unsub();
+  }, [session]);
+
+  // 4. User addresses & tickets & profile if logged in
+  useEffect(() => {
+    if (!session?.accountId) return;
+
+    // Load profile
+    getUserProfile(session.accountId).then((prof) => {
+      if (prof) {
+        setState((prev) => ({ ...prev, profile: prof }));
+      } else if (session.email) {
+        setState((prev) => ({
+          ...prev,
+          profile: {
+            name: session.name || "",
+            email: session.email || "",
+            phone: session.phone || "",
+            alternatephone: "",
+          },
+        }));
       }
-    } catch {
-      /* ignore corrupt state */
+    });
+
+    // Listen addresses
+    const unsubAddresses = listenUserAddresses(session.accountId, (addresses) => {
+      setState((prev) => ({ ...prev, addresses }));
+    });
+
+    // Listen tickets
+    const unsubTickets = listenUserTickets(session.accountId, (tickets) => {
+      setState((prev) => ({ ...prev, tickets }));
+    });
+
+    return () => {
+      unsubAddresses();
+      unsubTickets();
+    };
+  }, [session]);
+
+  // Active shop selection: if shopkeeper, prioritize their own shop
+  const activeShop = useMemo<Shop>(() => {
+    if (session?.role === "shopkeeper") {
+      const myShop = state.shops.find((s) => s.id === session.accountId);
+      if (myShop) return myShop;
     }
-    setHydrated(true);
+    const found = state.shops.find((s) => s.id === state.activeShopId);
+    return found || state.shops[0] || fallbackShop;
+  }, [state.shops, state.activeShopId, session]);
+
+  const setActiveShopId = useCallback((id: string) => {
+    setState((s) => ({ ...s, activeShopId: id }));
   }, []);
 
-  useEffect(() => {
-    if (!hydrated) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {
-      /* storage full */
-    }
-  }, [state, hydrated]);
+  const updateShop = useCallback(
+    (shopId: string, updater: (shop: Shop) => Shop) => {
+      setState((s) => ({
+        ...s,
+        shops: s.shops.map((shop) => (shop.id === shopId ? updater(shop) : shop)),
+      }));
+      updateShopInDb(shopId, updater).catch(console.error);
+    },
+    [],
+  );
 
-  const updateShop = useCallback((shopId: string, updater: (shop: Shop) => Shop) => {
-    setState((s) => ({
-      ...s,
-      shops: s.shops.map((shop) => (shop.id === shopId ? updater(shop) : shop)),
-    }));
-  }, []);
-
-  const placeOrder = useCallback((order: Order) => {
-    setState((s) => ({ ...s, orders: [order, ...s.orders], orderDraft: null }));
-  }, []);
+  const placeOrder = useCallback(
+    (order: Order) => {
+      const orderWithCustomer: Order = {
+        ...order,
+        customerId: session?.accountId || order.customerId,
+      };
+      setState((s) => ({
+        ...s,
+        orders: [orderWithCustomer, ...s.orders],
+        orderDraft: null,
+      }));
+      placeOrderInDb(orderWithCustomer).catch(console.error);
+    },
+    [session],
+  );
 
   const advanceOrder = useCallback((orderId: string, status: OrderStatus) => {
     const at = new Date().toISOString();
@@ -136,6 +296,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           : o,
       ),
     }));
+    advanceOrderStatusInDb(orderId, status).catch(console.error);
   }, []);
 
   const collectBalance = useCallback((orderId: string, via: "cash" | "upi" | "card") => {
@@ -154,28 +315,53 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           : o,
       ),
     }));
+    collectBalanceInDb(orderId, via).catch(console.error);
   }, []);
 
-  const saveAddress = useCallback((address: Address) => {
-    setState((s) => ({
-      ...s,
-      addresses: s.addresses.some((a) => a.id === address.id)
-        ? s.addresses.map((a) => (a.id === address.id ? address : a))
-        : [...s.addresses, address],
-    }));
-  }, []);
+  const saveAddress = useCallback(
+    (address: Address) => {
+      setState((s) => ({
+        ...s,
+        addresses: s.addresses.some((a) => a.id === address.id)
+          ? s.addresses.map((a) => (a.id === address.id ? address : a))
+          : [...s.addresses, address],
+      }));
+      if (session?.accountId) {
+        saveUserAddress(session.accountId, address).catch(console.error);
+      }
+    },
+    [session],
+  );
 
-  const deleteAddress = useCallback((id: string) => {
-    setState((s) => ({ ...s, addresses: s.addresses.filter((a) => a.id !== id) }));
-  }, []);
+  const deleteAddress = useCallback(
+    (id: string) => {
+      setState((s) => ({ ...s, addresses: s.addresses.filter((a) => a.id !== id) }));
+      if (session?.accountId) {
+        deleteUserAddress(session.accountId, id).catch(console.error);
+      }
+    },
+    [session],
+  );
 
-  const updateProfile = useCallback((profile: CustomerProfile) => {
-    setState((s) => ({ ...s, profile }));
-  }, []);
+  const updateProfile = useCallback(
+    (profile: CustomerProfile) => {
+      setState((s) => ({ ...s, profile }));
+      if (session?.accountId) {
+        updateUserProfile(session.accountId, profile).catch(console.error);
+      }
+    },
+    [session],
+  );
 
-  const addTicket = useCallback((ticket: SupportTicket) => {
-    setState((s) => ({ ...s, tickets: [ticket, ...s.tickets] }));
-  }, []);
+  const addTicket = useCallback(
+    (ticket: SupportTicket) => {
+      setState((s) => ({ ...s, tickets: [ticket, ...s.tickets] }));
+      if (session?.accountId) {
+        addUserTicket(session.accountId, ticket).catch(console.error);
+      }
+    },
+    [session],
+  );
 
   const setPendingDocs = useCallback((docs: DocumentFile[]) => {
     setState((s) => ({ ...s, pendingDocs: docs }));
@@ -217,28 +403,36 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return uploadedFilesMapRef.current.get(id);
   }, []);
 
-  const submitShopkeeperApplication = useCallback((application: ShopApplication) => {
-    setState((s) => {
-      const existing = s.shopkeeperApplications.findIndex(
-        (a) => a.accountId === application.accountId,
-      );
-      if (existing >= 0) {
-        const apps = [...s.shopkeeperApplications];
-        apps[existing] = application;
-        return { ...s, shopkeeperApplications: apps };
-      }
-      return { ...s, shopkeeperApplications: [...s.shopkeeperApplications, application] };
-    });
-  }, []);
+  const submitShopkeeperApplication = useCallback(
+    (application: ShopApplication) => {
+      setState((s) => {
+        const existing = s.shopkeeperApplications.findIndex(
+          (a) => a.accountId === application.accountId,
+        );
+        if (existing >= 0) {
+          const apps = [...s.shopkeeperApplications];
+          apps[existing] = application;
+          return { ...s, shopkeeperApplications: apps };
+        }
+        return { ...s, shopkeeperApplications: [...s.shopkeeperApplications, application] };
+      });
+      submitAppInDb(application).catch(console.error);
+    },
+    [],
+  );
 
-  const updateShopkeeperApplication = useCallback((id: string, patch: Partial<ShopApplication>) => {
-    setState((s) => ({
-      ...s,
-      shopkeeperApplications: s.shopkeeperApplications.map((a) =>
-        a.id === id ? { ...a, ...patch, updatedAt: new Date().toISOString() } : a,
-      ),
-    }));
-  }, []);
+  const updateShopkeeperApplication = useCallback(
+    (id: string, patch: Partial<ShopApplication>) => {
+      setState((s) => ({
+        ...s,
+        shopkeeperApplications: s.shopkeeperApplications.map((a) =>
+          a.id === id ? { ...a, ...patch, updatedAt: new Date().toISOString() } : a,
+        ),
+      }));
+      updateAppInDb(id, patch).catch(console.error);
+    },
+    [],
+  );
 
   const getShopkeeperApplication = useCallback(
     (accountId: string) => {
@@ -252,6 +446,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ...s,
       shopkeeperProfiles: { ...s.shopkeeperProfiles, [accountId]: profile },
     }));
+    saveProfileInDb(accountId, profile).catch(console.error);
   }, []);
 
   const getShopkeeperProfile = useCallback(
@@ -265,7 +460,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     () => ({
       ...state,
       hydrated,
-      activeShop: state.shops.find((s) => s.id === state.activeShopId) ?? state.shops[0]!,
+      activeShop,
+      setActiveShopId,
       updateShop,
       placeOrder,
       advanceOrder,
@@ -293,6 +489,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [
       state,
       hydrated,
+      activeShop,
+      setActiveShopId,
       updateShop,
       placeOrder,
       advanceOrder,
@@ -328,7 +526,7 @@ export function useStore() {
   return ctx;
 }
 
-export function newOrderId(orders: Order[]) {
+export function newOrderId(orders: Order[] = []) {
   const nums = orders
     .map((o) => parseInt(o.id.replace("OMX-", ""), 10))
     .filter((n) => !Number.isNaN(n));

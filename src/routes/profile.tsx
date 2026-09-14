@@ -1,5 +1,5 @@
 import { createFileRoute } from "@/lib/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MapPin, Plus, Trash2, User } from "lucide-react";
 import { toast } from "sonner";
 import { CustomerShell, PageHeader } from "@/components/layout/CustomerShell";
@@ -40,6 +40,12 @@ function ProfilePage() {
   const [form, setForm] = useState(profile);
   const [draft, setDraft] = useState(emptyAddress);
   const [adding, setAdding] = useState(false);
+
+  useEffect(() => {
+    if (profile.name || profile.email || profile.phone) {
+      setForm(profile);
+    }
+  }, [profile]);
 
   return (
     <CustomerShell>

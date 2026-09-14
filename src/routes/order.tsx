@@ -648,6 +648,7 @@ function OrderPage() {
   const navigate = useNavigate();
   const {
     shops,
+    activeShop,
     orders,
     addresses,
     profile,
@@ -672,7 +673,7 @@ function OrderPage() {
   const [docs, setDocs] = useState<DocumentFile[]>(pendingDocs);
   const [uploadedFiles, setUploadedFiles] = useState<Record<string, File>>({});
   const [config, setConfig] = useState<PrintConfig>(defaultConfig);
-  const [shopId, setShopId] = useState<string>(shops[0]!.id);
+  const [shopId, setShopId] = useState<string>(shops[0]?.id ?? activeShop.id);
   const [fulfillment, setFulfillment] = useState<Fulfillment>("pickup");
   const [addressId, setAddressId] = useState<string | null>(addresses[0]?.id ?? null);
   const [newAddress, setNewAddress] = useState(false);
@@ -732,8 +733,8 @@ function OrderPage() {
     lowestPrice: false,
   });
   const shop = useMemo<Shop>(
-    () => shops.find((s) => s.id === shopId) ?? shops[0]!,
-    [shops, shopId],
+    () => shops.find((s) => s.id === shopId) ?? shops[0] ?? activeShop,
+    [shops, shopId, activeShop],
   );
   const price = useMemo(
     () => calculateOrderPrice(shop, docs, config, fulfillment),
@@ -1032,8 +1033,9 @@ function OrderPage() {
     const primaryPaper = shop.paperTypes.find((item) => item.id === primaryConfig.paperTypeId);
     const order: Order = {
       id: newOrderId(orders),
-      customerName: profile.name,
-      customerPhone: profile.phone,
+      customerId: session?.accountId,
+      customerName: profile.name || session?.name || "Customer",
+      customerPhone: profile.phone || session?.phone || "",
       shopId: shop.id,
       shopName: shop.name,
       documents: docs,

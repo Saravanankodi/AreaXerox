@@ -1,3 +1,5 @@
+"use client";
+
 import { Link, useNavigate } from "@/lib/navigation";
 import { Printer, ShieldCheck } from "lucide-react";
 import { useState, type FormEvent } from "react";
@@ -7,10 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { type AccountRole, useAuth } from "@/lib/auth";
 import { useStore } from "@/lib/store";
+import { signInUser, getAccountByUid } from "@/services/auth.service";
 
 export function AuthPage({ role, mode }: { role: AccountRole; mode: "login" | "signup" }) {
   const navigate = useNavigate();
-  const { signIn, createAccount, getAllAccounts } = useAuth();
+  const { signIn, createAccount, refreshSession } = useAuth();
   const { updateProfile, orderDraft } = useStore();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -28,7 +31,7 @@ export function AuthPage({ role, mode }: { role: AccountRole; mode: "login" | "s
       ? "/auth/shop/create-account"
       : "/auth/customer/create-account";
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoading(true);
 
@@ -50,173 +53,140 @@ export function AuthPage({ role, mode }: { role: AccountRole; mode: "login" | "s
         return;
       }
 
-      const result = createAccount(email, password, role, name.trim());
-      if (typeof result === "string") {
-        toast.error(result);
+      try {
+        const result = await createAccount(email, password, role, name.trim(), phone.trim());
+        if (typeof result === "string") {
+          toast.error(result);
+          setLoading(false);
+          return;
+        }
+
+        signIn({
+          accountId: result.id,
+          role,
+          email: result.email,
+          name: name.trim(),
+          registrationStatus: "incomplete",
+          accountStatus: result.accountStatus,
+          phone: phone.trim() || undefined,
+        });
+
+        if (!isShop) {
+          updateProfile({
+            name: name.trim(),
+            email: email.trim().toLowerCase(),
+            phone: phone.trim(),
+          });
+        }
+
+        toast.success("Account created", {
+          description: isShop
+            ? "Complete your shop registration to continue."
+            : "Complete your profile to continue.",
+        });
+
+        if (isShop) {
+          navigate({ to: "/auth/shop/register" });
+        } else {
+          navigate({ to: "/auth/customer/register" });
+        }
+      } catch (err: any) {
+        toast.error(err.message || "Failed to create account.");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Login flow with real Firebase Auth
+    try {
+      const user = await signInUser(email, password);
+      const account = await getAccountByUid(user.uid);
+
+      if (!account) {
+        toast.error("Account profile not found.");
+        setLoading(false);
+        return;
+      }
+
+      // Check if role matches
+      if (account.role !== role && role !== "customer") {
+        toast.error(`This account is registered as a ${account.role}.`);
         setLoading(false);
         return;
       }
 
       signIn({
-        accountId: result.id,
-        role,
-        email: result.email,
-        name: name.trim(),
-        registrationStatus: "incomplete",
-        accountStatus: result.accountStatus,
-        phone: phone.trim() || undefined,
+        accountId: account.id,
+        role: account.role,
+        email: account.email || user.email || email,
+        name: account.name || user.displayName || user.email?.split("@")[0] || "User",
+        registrationStatus: account.registrationStatus,
+        accountStatus: account.accountStatus,
+        phone: account.phone,
+        shopName: account.shopName,
       });
 
-      if (!isShop) {
-        updateProfile({
-          name: name.trim(),
-          email: email.trim().toLowerCase(),
-          phone: phone.trim(),
-        });
+      // Check shopkeeper account status
+      if (account.role === "shopkeeper") {
+        if (account.registrationStatus === "incomplete") {
+          toast.info("Complete your shop registration to continue.");
+          navigate({ to: "/auth/shop/register" });
+          setLoading(false);
+          return;
+        }
+        if (account.accountStatus === "pending") {
+          navigate({ to: "/shop/pending" });
+          setLoading(false);
+          return;
+        }
+        if (account.accountStatus === "rejected") {
+          navigate({ to: "/shop/rejected" });
+          setLoading(false);
+          return;
+        }
+        if (account.accountStatus === "suspended") {
+          navigate({ to: "/shop/suspended" });
+          setLoading(false);
+          return;
+        }
+        if (account.accountStatus === "disabled") {
+          navigate({ to: "/shop/disabled" });
+          setLoading(false);
+          return;
+        }
       }
 
-      toast.success("Account created", {
-        description: isShop
-          ? "Complete your shop registration to continue."
-          : "Complete your profile to continue.",
-      });
+      if (account.role === "customer") {
+        if (account.registrationStatus === "incomplete") {
+          toast.info("Complete your profile to continue.");
+          navigate({ to: "/auth/customer/register" });
+          setLoading(false);
+          return;
+        }
+      }
 
-      if (isShop) {
-        navigate({ to: "/auth/shop/register" });
+      await refreshSession();
+      toast.success("Welcome back", { description: "Signed in successfully." });
+      navigate({ to: isShop ? "/shop" : orderDraft ? "/order" : "/" });
+    } catch (err: any) {
+      console.error("Sign in error:", err);
+      if (
+        err.code === "auth/invalid-credential" ||
+        err.code === "auth/user-not-found" ||
+        err.code === "auth/wrong-password"
+      ) {
+        toast.error("Invalid email or password.");
+      } else if (err.code === "auth/configuration-not-found") {
+        toast.error("Email/Password is not enabled in your Firebase Console under Authentication > Sign-in method.");
+      } else if (err.code === "auth/too-many-requests") {
+        toast.error("Too many failed attempts. Please try again later.");
       } else {
-        navigate({ to: "/auth/customer/register" });
+        toast.error(err.message || "Failed to sign in.");
       }
+    } finally {
       setLoading(false);
-      return;
     }
-
-    // Login flow
-    const accounts = getAllAccounts();
-    const account = accounts.find(
-      (a) => a.email.toLowerCase() === email.trim().toLowerCase() && a.role === role,
-    );
-
-    if (!account) {
-      toast.error("No account found with this email.");
-      setLoading(false);
-      return;
-    }
-
-    // Simple password check (demo only)
-    const hashFn = (pw: string) => {
-      let hash = 0;
-      for (let i = 0; i < pw.length; i++) {
-        const char = pw.charCodeAt(i);
-        hash = (hash << 5) - hash + char;
-        hash |= 0;
-      }
-      return `h_${Math.abs(hash).toString(36)}_${pw.length}`;
-    };
-
-    if (account.passwordHash !== hashFn(password)) {
-      toast.error("Incorrect password.");
-      setLoading(false);
-      return;
-    }
-
-    // Check access rights
-    if (role === "shopkeeper") {
-      if (account.registrationStatus === "incomplete") {
-        signIn({
-          accountId: account.id,
-          role,
-          email: account.email,
-          name: account.email.split("@")[0] ?? "user",
-          registrationStatus: "incomplete",
-          accountStatus: account.accountStatus,
-        });
-        toast.info("Complete your shop registration to continue.");
-        navigate({ to: "/auth/shop/register" });
-        setLoading(false);
-        return;
-      }
-      if (account.accountStatus === "pending") {
-        signIn({
-          accountId: account.id,
-          role,
-          email: account.email,
-          name: account.email.split("@")[0] ?? "user",
-          registrationStatus: account.registrationStatus,
-          accountStatus: "pending",
-        });
-        navigate({ to: "/shop/pending" });
-        setLoading(false);
-        return;
-      }
-      if (account.accountStatus === "rejected") {
-        signIn({
-          accountId: account.id,
-          role,
-          email: account.email,
-          name: account.email.split("@")[0] ?? "user",
-          registrationStatus: account.registrationStatus,
-          accountStatus: "rejected",
-        });
-        navigate({ to: "/shop/rejected" });
-        setLoading(false);
-        return;
-      }
-      if (account.accountStatus === "suspended") {
-        signIn({
-          accountId: account.id,
-          role,
-          email: account.email,
-          name: account.email.split("@")[0] ?? "user",
-          registrationStatus: account.registrationStatus,
-          accountStatus: "suspended",
-        });
-        navigate({ to: "/shop/suspended" });
-        setLoading(false);
-        return;
-      }
-      if (account.accountStatus === "disabled") {
-        signIn({
-          accountId: account.id,
-          role,
-          email: account.email,
-          name: account.email.split("@")[0] ?? "user",
-          registrationStatus: account.registrationStatus,
-          accountStatus: "disabled",
-        });
-        navigate({ to: "/shop/disabled" });
-        setLoading(false);
-        return;
-      }
-    }
-
-    if (role === "customer") {
-      if (account.registrationStatus === "incomplete") {
-        signIn({
-          accountId: account.id,
-          role,
-          email: account.email,
-          name: account.email.split("@")[0] ?? "user",
-          registrationStatus: "incomplete",
-          accountStatus: account.accountStatus,
-        });
-        toast.info("Complete your profile to continue.");
-        navigate({ to: "/auth/customer/register" });
-        setLoading(false);
-        return;
-      }
-    }
-
-    signIn({
-      accountId: account.id,
-      role,
-      email: account.email,
-      name: account.email.split("@")[0] ?? "user",
-      registrationStatus: account.registrationStatus,
-      accountStatus: account.accountStatus,
-    });
-    toast.success("Welcome back", { description: "Your session is ready." });
-    navigate({ to: isShop ? "/shop" : orderDraft ? "/order" : "/" });
-    setLoading(false);
   };
 
   return (

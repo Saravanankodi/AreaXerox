@@ -27,6 +27,7 @@ import type {
   ShopApplicationServices,
   ShopkeeperProfile,
 } from "@/types";
+import { uploadFile } from "@/lib/firebase/storage";
 
 export const Route = createFileRoute("/auth/shop/register")({
   component: ShopRegisterPage,
@@ -76,6 +77,7 @@ function ShopRegisterPage() {
   // Step 4: Images
   const [images, setImages] = useState<ShopImage[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageFilesRef = useRef<Map<string, File>>(new Map());
 
   // Step 5: Services
   const [services, setServices] = useState<ShopApplicationServices>({
@@ -224,17 +226,22 @@ function ShopRegisterPage() {
         return;
       }
     }
-    const newImages: ShopImage[] = files.map((file, i) => ({
-      id: `img-${Date.now()}-${i}`,
-      imageUrl: URL.createObjectURL(file),
-      imageType: images.length === 0 && i === 0 ? "front" : "additional",
-      sortOrder: images.length + i,
-    }));
+    const newImages: ShopImage[] = files.map((file, i) => {
+      const id = `img-${Date.now()}-${i}`;
+      imageFilesRef.current.set(id, file);
+      return {
+        id,
+        imageUrl: URL.createObjectURL(file),
+        imageType: images.length === 0 && i === 0 ? "front" : "additional",
+        sortOrder: images.length + i,
+      };
+    });
     setImages((prev) => [...prev, ...newImages]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const removeImage = (id: string) => {
+    imageFilesRef.current.delete(id);
     setImages((prev) => prev.filter((img) => img.id !== id));
   };
 
@@ -255,48 +262,78 @@ function ShopRegisterPage() {
     if (submitting) return;
     setSubmitting(true);
 
-    const application: ShopApplication = {
-      id: `app-${Date.now()}`,
-      accountId: session.accountId,
-      shopkeeperProfile: {
+    try {
+      // Upload images to Firebase Storage
+      const uploadedImages: ShopImage[] = await Promise.all(
+        images.map(async (img, i) => {
+          const file = imageFilesRef.current.get(img.id);
+          if (file) {
+            try {
+              const path = `shopImages/${session.accountId}/${Date.now()}_${img.id}_${file.name}`;
+              const url = await uploadFile(path, file);
+              return { ...img, imageUrl: url, sortOrder: i };
+            } catch (err) {
+              console.warn("Firebase Storage upload failed, converting to data URL:", err);
+              return new Promise<ShopImage>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () =>
+                  resolve({ ...img, imageUrl: reader.result as string, sortOrder: i });
+                reader.onerror = () => resolve({ ...img, sortOrder: i });
+                reader.readAsDataURL(file);
+              });
+            }
+          }
+          return { ...img, sortOrder: i };
+        }),
+      );
+
+      const application: ShopApplication = {
+        id: `app-${session.accountId}`,
         accountId: session.accountId,
-        username: username.trim() || session.email.split("@")[0] || "shopkeeper",
-        ownerName: ownerName.trim(),
-        phone: phone.trim(),
-        alternatePhone: alternatePhone.trim(),
-      },
-      shopName: shopName.trim(),
-      shopAddress: shopAddress.trim(),
-      area: area.trim(),
-      city: city.trim(),
-      state: state.trim(),
-      pincode: pincode.trim(),
-      whatsappNumber: whatsappNumber.trim(),
-      shopDescription: shopDescription.trim(),
-      shopImages: images.map((img, i) => ({ ...img, sortOrder: i })),
-      services,
-      accountStatus: "pending",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+        shopkeeperProfile: {
+          accountId: session.accountId,
+          username: username.trim() || session.email.split("@")[0] || "shopkeeper",
+          ownerName: ownerName.trim(),
+          phone: phone.trim(),
+          alternatePhone: alternatePhone.trim(),
+        },
+        shopName: shopName.trim(),
+        shopAddress: shopAddress.trim(),
+        area: area.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        pincode: pincode.trim(),
+        whatsappNumber: whatsappNumber.trim(),
+        shopDescription: shopDescription.trim(),
+        shopImages: uploadedImages,
+        services,
+        accountStatus: "pending",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
 
-    submitShopkeeperApplication(application);
-    saveShopkeeperProfile(session.accountId, application.shopkeeperProfile);
-    updateAccount(session.accountId, {
-      registrationStatus: "complete",
-      accountStatus: "pending",
-    });
-    signIn({
-      ...session,
-      registrationStatus: "complete",
-      accountStatus: "pending",
-    });
+      submitShopkeeperApplication(application);
+      saveShopkeeperProfile(session.accountId, application.shopkeeperProfile);
+      updateAccount(session.accountId, {
+        registrationStatus: "complete",
+        accountStatus: "pending",
+      });
+      signIn({
+        ...session,
+        registrationStatus: "complete",
+        accountStatus: "pending",
+      });
 
-    toast.success("Registration submitted", {
-      description: "Your application is waiting for admin approval.",
-    });
-    navigate({ to: "/shop/pending" });
-    setSubmitting(false);
+      toast.success("Registration submitted", {
+        description: "Your application is waiting for admin approval.",
+      });
+      navigate({ to: "/shop/pending" });
+    } catch (err: any) {
+      console.error("Submission error:", err);
+      toast.error(err.message || "Failed to submit registration.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (

@@ -1,3 +1,5 @@
+"use client";
+
 import {
   createContext,
   useCallback,
@@ -8,6 +10,16 @@ import {
   type ReactNode,
 } from "react";
 import type { Account, AccountRole, AccountStatus, RegistrationStatus } from "@/types";
+import { auth } from "./firebase/auth";
+import { onAuthStateChanged, type User } from "firebase/auth";
+import {
+  getAccountByUid,
+  registerNewAccount,
+  logoutUser,
+  signInUser,
+} from "@/services/auth.service";
+import { fetchAllAccounts } from "@/services/admin.service";
+import { fsUpdate } from "./firebase/firestore";
 
 export type { AccountRole };
 
@@ -25,9 +37,9 @@ export interface AccountSession {
 interface AuthValue {
   ready: boolean;
   session: AccountSession | null;
+  currentUser: User | null;
   signIn: (session: AccountSession) => void;
-  signOut: () => void;
-  /** Raw account from the accounts store (for password, timestamps, etc.) */
+  signOut: () => Promise<void>;
   getAccount: (id: string) => Account | undefined;
   getAllAccounts: () => Account[];
   createAccount: (
@@ -35,122 +47,162 @@ interface AuthValue {
     password: string,
     role: AccountRole,
     name: string,
-  ) => Account | string;
-  updateAccount: (id: string, patch: Partial<Account>) => void;
+    phone?: string,
+  ) => Promise<Account | string>;
+  updateAccount: (id: string, patch: Partial<Account>) => Promise<void>;
+  refreshSession: () => Promise<void>;
 }
 
-const SESSION_KEY = "omx-session-v1";
-const ACCOUNTS_KEY = "omx-accounts-v1";
 const AuthContext = createContext<AuthValue | null>(null);
 
-// Simple non-crypto hash for demo. In production use Argon2id/ bcrypt server-side.
-function hashPassword(pw: string): string {
-  let hash = 0;
-  for (let i = 0; i < pw.length; i++) {
-    const char = pw.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
-  }
-  return `h_${Math.abs(hash).toString(36)}_${pw.length}`;
-}
-
-function loadAccounts(): Account[] {
-  try {
-    const raw = localStorage.getItem(ACCOUNTS_KEY);
-    if (raw) return JSON.parse(raw) as Account[];
-  } catch {
-    /* corrupt */
-  }
-  return [];
-}
-
-function saveAccounts(accounts: Account[]) {
-  try {
-    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
-  } catch {
-    /* storage full */
-  }
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [session, setSession] = useState<AccountSession | null>(null);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [ready, setReady] = useState(false);
 
-  useEffect(() => {
+  // Sync all accounts for admin / lookup
+  const loadAccounts = useCallback(async () => {
     try {
-      const saved = localStorage.getItem(SESSION_KEY);
-      if (saved) setSession(JSON.parse(saved) as AccountSession);
+      const list = await fetchAllAccounts();
+      setAccounts(list);
     } catch {
-      localStorage.removeItem(SESSION_KEY);
-    } finally {
-      setReady(true);
+      // ignore
     }
   }, []);
 
+  const refreshSession = useCallback(async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      setSession(null);
+      return;
+    }
+    const acc = await getAccountByUid(user.uid);
+    if (acc) {
+      setSession({
+        accountId: user.uid,
+        role: acc.role,
+        name: acc.name || user.displayName || user.email?.split("@")[0] || "User",
+        email: user.email || acc.email,
+        registrationStatus: acc.registrationStatus,
+        accountStatus: acc.accountStatus,
+        phone: acc.phone,
+        shopName: acc.shopName,
+      });
+    }
+    loadAccounts();
+  }, [loadAccounts]);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+      if (user) {
+        const acc = await getAccountByUid(user.uid);
+        if (acc) {
+          setSession({
+            accountId: user.uid,
+            role: acc.role,
+            name: acc.name || user.displayName || user.email?.split("@")[0] || "User",
+            email: user.email || acc.email,
+            registrationStatus: acc.registrationStatus,
+            accountStatus: acc.accountStatus,
+            phone: acc.phone,
+            shopName: acc.shopName,
+          });
+        }
+      } else {
+        setSession(null);
+      }
+      setReady(true);
+      loadAccounts();
+    });
+
+    return () => unsubscribe();
+  }, [loadAccounts]);
+
   const signIn = useCallback((next: AccountSession) => {
     setSession(next);
-    localStorage.setItem(SESSION_KEY, JSON.stringify(next));
   }, []);
 
-  const signOut = useCallback(() => {
+  const signOut = useCallback(async () => {
+    await logoutUser();
     setSession(null);
-    localStorage.removeItem(SESSION_KEY);
   }, []);
 
-  const getAccount = useCallback((id: string) => {
-    return loadAccounts().find((a) => a.id === id);
-  }, []);
-
-  const getAllAccounts = useCallback(() => loadAccounts(), []);
-
-  const createAccount = useCallback(
-    (email: string, password: string, role: AccountRole, name: string): Account | string => {
-      const accounts = loadAccounts();
-      const existing = accounts.find((a) => a.email.toLowerCase() === email.toLowerCase());
-      if (existing) return "An account with this email already exists.";
-
-      const now = new Date().toISOString();
-      const account: Account = {
-        id: `acc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        email: email.trim().toLowerCase(),
-        passwordHash: hashPassword(password),
-        role,
-        registrationStatus: "incomplete",
-        accountStatus: role === "shopkeeper" ? "pending" : "active",
-        createdAt: now,
-        updatedAt: now,
-      };
-      accounts.push(account);
-      saveAccounts(accounts);
-      return account;
+  const getAccount = useCallback(
+    (id: string) => {
+      return accounts.find((a) => a.id === id);
     },
-    [],
+    [accounts],
   );
 
-  const updateAccount = useCallback((id: string, patch: Partial<Omit<Account, "id">>) => {
-    const accounts = loadAccounts();
-    const idx = accounts.findIndex((a) => a.id === id);
-    if (idx === -1) return;
-    accounts[idx] = {
-      ...accounts[idx],
-      ...patch,
-      updatedAt: new Date().toISOString(),
-    } as Account;
-    saveAccounts(accounts);
-  }, []);
+  const getAllAccounts = useCallback(() => accounts, [accounts]);
+
+  const createAccount = useCallback(
+    async (
+      email: string,
+      password: string,
+      role: AccountRole,
+      name: string,
+      phone?: string,
+    ): Promise<Account | string> => {
+      const res = await registerNewAccount(email, password, role, name, phone);
+      if (typeof res === "string") {
+        return res;
+      }
+      await refreshSession();
+      return res.account;
+    },
+    [refreshSession],
+  );
+
+  const updateAccount = useCallback(
+    async (id: string, patch: Partial<Account>) => {
+      try {
+        const acc = accounts.find((a) => a.id === id) || (session?.accountId === id ? session : null);
+        const role = acc?.role || "customer";
+        const collection = role === "admin" ? "admins" : role === "shopkeeper" ? "shopkeepers" : "users";
+        await fsUpdate(`${collection}/${id}`, patch);
+
+        setAccounts((prev) =>
+          prev.map((a) => (a.id === id ? { ...a, ...patch, updatedAt: new Date().toISOString() } : a)),
+        );
+
+        if (session && session.accountId === id) {
+          setSession((prev) => (prev ? { ...prev, ...patch } : null));
+        }
+      } catch (err) {
+        console.error("Error updating account:", err);
+      }
+    },
+    [accounts, session],
+  );
 
   const value = useMemo<AuthValue>(
     () => ({
       ready,
       session,
+      currentUser,
       signIn,
       signOut,
       getAccount,
       getAllAccounts,
       createAccount,
       updateAccount,
+      refreshSession,
     }),
-    [ready, session, signIn, signOut, getAccount, getAllAccounts, createAccount, updateAccount],
+    [
+      ready,
+      session,
+      currentUser,
+      signIn,
+      signOut,
+      getAccount,
+      getAllAccounts,
+      createAccount,
+      updateAccount,
+      refreshSession,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
