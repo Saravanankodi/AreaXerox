@@ -4,6 +4,7 @@ import { ShopShell } from "@/components/layout/ShopShell";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, PaymentBadge } from "@/components/StatusBadge";
 import { useStore } from "@/lib/store";
+import { useMyShop } from "@/lib/useMyShop";
 import { inr } from "@/lib/pricing";
 import { fulfillmentLabel } from "@/lib/labels";
 
@@ -23,8 +24,11 @@ export const Route = createFileRoute("/shop/")({
 });
 
 function ShopDashboard() {
-  const { orders, activeShop } = useStore();
-  const mine = orders.filter((o) => o.shopId === activeShop.id);
+  const { orders } = useStore();
+  const myShop = useMyShop();
+
+  const mine = orders.filter((o) => o.shopId === myShop.id);
+
   const active = mine.filter(
     (o) => !["COMPLETED", "DELIVERED", "REJECTED"].includes(o.status),
   );
@@ -41,7 +45,7 @@ function ShopDashboard() {
   return (
     <ShopShell
       title="Dashboard"
-      subtitle={`${activeShop.name} · ${activeShop.hours}`}
+      subtitle={`${myShop.name} · ${myShop.hours}`}
       action={
         <Link to="/shop/orders">
           <Button>Manage orders</Button>

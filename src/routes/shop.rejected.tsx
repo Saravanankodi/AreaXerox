@@ -1,8 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@/lib/navigation";
 import { XCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { useStore } from "@/lib/store";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { getShopByOwner } from "@/lib/firestore/shops";
+import type { Shop } from "@/types";
 
 export const Route = createFileRoute("/shop/rejected")({
   component: ShopRejectedPage,
@@ -11,7 +12,7 @@ export const Route = createFileRoute("/shop/rejected")({
 function ShopRejectedPage() {
   const navigate = useNavigate();
   const { session, signOut } = useAuth();
-  const { getShopkeeperApplication } = useStore();
+  const [application, setApplication] = useState<Shop | undefined>();
 
   useEffect(() => {
     if (!session || session.role !== "shopkeeper") {
@@ -24,14 +25,16 @@ function ShopRejectedPage() {
     }
     if (session.accountStatus === "pending") {
       navigate({ to: "/shop/pending" });
+      return;
     }
+    getShopByOwner(session.accountId)
+      .then(setApplication)
+      .catch(console.error);
   }, [session, navigate]);
 
   if (!session || session.role !== "shopkeeper" || session.accountStatus === "active" || session.accountStatus === "pending") {
     return null;
   }
-
-  const application = getShopkeeperApplication(session.accountId);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-5">

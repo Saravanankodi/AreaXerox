@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ShopShell } from "@/components/layout/ShopShell";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
+import { useMyShop } from "@/lib/useMyShop";
 import { inr } from "@/lib/pricing";
 import { fulfillmentLabel } from "@/lib/labels";
 import { cn } from "@/lib/utils";
@@ -39,7 +40,8 @@ const IN_PROGRESS_STATUSES = [
 const COMPLETED_STATUSES = ["COMPLETED", "DELIVERED"] as const;
 
 function ShopOrders() {
-  const { orders, activeShop, advanceOrder } = useStore();
+  const { orders, advanceOrder } = useStore();
+  const shop = useMyShop();
   const [tab, setTab] = useState<Tab>("New");
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isChildActive = pathname !== "/shop/orders";
@@ -52,7 +54,7 @@ function ShopOrders() {
     );
   }
 
-  const mine = orders.filter((o) => o.shopId === activeShop.id);
+  const mine = orders.filter((o) => o.shopId === shop.id);
 
   const newOrders = mine.filter((o) => o.status === "NEW");
   const inProgressOrders = mine.filter((o) =>

@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useStore } from "@/lib/store";
+import { useMyShop } from "@/lib/useMyShop";
 import { inr } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
 
@@ -28,8 +29,8 @@ export const Route = createFileRoute("/shop/services")({
 });
 
 function ShopServices() {
-  const { activeShop, updateShop } = useStore();
-  const shop = activeShop;
+  const { updateShop } = useStore();
+  const shop = useMyShop();
 
   return (
     <ShopShell

@@ -1,12 +1,11 @@
 import { createFileRoute } from "@/lib/navigation";
-import { useState } from "react";
-import { Bell, Power, Printer } from "lucide-react";
+import { Bell, Power } from "lucide-react";
 import { toast } from "sonner";
 import { ShopShell } from "@/components/layout/ShopShell";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { useStore } from "@/lib/store";
+import { useMyShop } from "@/lib/useMyShop";
 
 export const Route = createFileRoute("/shop/settings")({
   head: () => ({
@@ -15,7 +14,7 @@ export const Route = createFileRoute("/shop/settings")({
       {
         name: "description",
         content:
-          "Pause new orders, set daily order limits and choose how you get notified about new print jobs.",
+          "Pause new orders and choose how you get notified about new print jobs.",
       },
       { property: "og:title", content: "Shop Settings — XEROXMATE Shop" },
       { property: "og:description", content: "Operational controls for your print shop." },
@@ -24,14 +23,32 @@ export const Route = createFileRoute("/shop/settings")({
   component: ShopSettings,
 });
 
+const DEFAULT_NOTIFICATIONS = { sound: true, email: true } as const;
+
 function ShopSettings() {
-  const [open, setOpen] = useState(true);
-  const [limit, setLimit] = useState(40);
-  const [notify, setNotify] = useState<Record<string, boolean>>({
-    sound: true,
-    sms: false,
-    email: true,
-  });
+  const { updateShop } = useStore();
+  const shop = useMyShop();
+
+  const acceptingOrders = shop.acceptingOrders ?? true;
+  const notifications = shop.settings?.notifications ?? DEFAULT_NOTIFICATIONS;
+
+  const setAcceptingOrders = (value: boolean) => {
+    updateShop(shop.id, (s) => ({ ...s, acceptingOrders: value }));
+    toast[value ? "success" : "error"](value ? "Shop is now open" : "Shop paused");
+  };
+
+  const setNotification = (key: keyof typeof DEFAULT_NOTIFICATIONS, value: boolean) => {
+    updateShop(shop.id, (s) => ({
+      ...s,
+      settings: {
+        notifications: {
+          ...(s.settings?.notifications ?? DEFAULT_NOTIFICATIONS),
+          [key]: value,
+        },
+      },
+    }));
+    toast.success(value ? "Notification enabled" : "Notification muted");
+  };
 
   return (
     <ShopShell title="Settings" subtitle="Operational controls for your shop.">
@@ -48,27 +65,12 @@ function ShopSettings() {
                   Turn off to temporarily stop receiving print jobs.
                 </p>
               </div>
-              <Switch
-                checked={open}
-                onCheckedChange={(v) => {
-                  setOpen(v);
-                  toast[v ? "success" : "error"](v ? "Shop is now open" : "Shop paused");
-                }}
-              />
+              <Switch checked={acceptingOrders} onCheckedChange={setAcceptingOrders} />
             </div>
-            {/* <div>
-              <Label htmlFor="limit">Daily order limit</Label>
-              <Input
-                id="limit"
-                type="number"
-                className="mt-1.5 w-32"
-                value={limit}
-                onChange={(e) => setLimit(Number(e.target.value) || 0)}
-              />
-              <p className="mt-1.5 text-sm text-muted-foreground">
-                New orders pause automatically once you hit this number.
-              </p>
-            </div> */}
+            <p className="text-xs text-muted-foreground">
+              When paused, your shop is hidden from the customer ordering page until you turn
+              this back on.
+            </p>
           </div>
         </div>
 
@@ -86,29 +88,13 @@ function ShopSettings() {
               <div key={key} className="flex items-center justify-between gap-4 py-3">
                 <Label className="text-sm font-medium">{label}</Label>
                 <Switch
-                  checked={notify[key] ?? false}
-                  onCheckedChange={(v) => setNotify((s) => ({ ...s, [key]: v }))}
+                  checked={notifications[key]}
+                  onCheckedChange={(v) => setNotification(key, v)}
                 />
               </div>
             ))}
           </div>
         </div>
-
-        {/* <div className="card-surface p-5 md:p-6 lg:col-span-2">
-          <h2 className="inline-flex items-center gap-2 text-base font-semibold">
-            <Printer className="h-4 w-4 text-primary" /> Printers
-          </h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Connect a local printer to send jobs directly from the order screen.
-          </p>
-          <Button
-            variant="outline"
-            className="mt-5"
-            onClick={() => toast.success("Printer connection is not available in this demo")}
-          >
-            Connect a printer
-          </Button>
-        </div> */}
       </div>
     </ShopShell>
   );

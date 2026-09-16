@@ -105,8 +105,30 @@ function OrderDetail() {
                       </p>
                     </div>
                     <div className="ml-auto flex items-center gap-2">
-                      <button><Eye className="h-5 w-5" /></button>
-                      <button><Download className="h-5 w-5" /></button>
+                      <button
+                        type="button"
+                        className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        title="View document"
+                        onClick={() => {
+                          if (d.cloudinary?.url) {
+                            window.open(d.cloudinary.url, "_blank");
+                          }
+                        }}
+                      >
+                        <Eye className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        title="Download document"
+                        onClick={() => {
+                          if (d.cloudinary?.url) {
+                            window.open(d.cloudinary.url, "_blank");
+                          }
+                        }}
+                      >
+                        <Download className="h-5 w-5" />
+                      </button>
                     </div>
                   </div>
                 ))}

@@ -51,7 +51,42 @@ function Index() {
 
       <section className="border-y border-border bg-card"><div className="container-page grid gap-7 py-12 md:grid-cols-[.8fr_1.2fr] md:py-16"><div><p className="text-sm font-bold text-primary">TRANSPARENT FROM THE START</p><h2 className="mt-2 text-section-title font-bold">One total you can trust.</h2><p className="mt-4 max-w-md text-sm leading-6 text-muted-foreground">Each file receives its own print settings and subtotal. You see delivery and the final payable amount before confirming.</p><Link to="/order" className="mt-6 inline-block"><Button variant="outline">See the order flow <ArrowRight className="h-4 w-4" /></Button></Link></div><div className="grid gap-3 sm:grid-cols-2"><Benefit icon={FileCheck2} title="File-by-file choices" copy="Different documents can use different paper, colour and finishing." /><Benefit icon={ShieldCheck} title="No price surprises" copy="The total updates as your print choices change." /><Benefit icon={Clock3} title="Live order milestones" copy="Accepted, printing, ready, and delivered—at a glance." /><Benefit icon={Truck} title="Pickup or delivery" copy="Choose what fits your day and see availability up front." /></div></div></section>
 
-      {/* <section className="container-page py-12 md:py-20"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-sm font-bold text-primary">AVAILABLE NEAR YOU</p><h2 className="mt-2 text-section-title font-bold">Trusted shops, clear turnaround.</h2></div><Link to="/order"><Button variant="outline">Compare shops</Button></Link></div><div className="mt-8 grid gap-4 md:grid-cols-3">{shops.map((shop) => <div key={shop.id} className="card-surface hover-lift p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-base font-bold">{shop.name}</p><p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3.5 w-3.5" /> {shop.distanceKm} km away</p></div><span className="inline-flex items-center gap-1 rounded-full bg-warning-light px-2 py-1 text-xs font-bold"><Star className="h-3.5 w-3.5 text-warning" /> {shop.rating}</span></div><div className="mt-5 flex items-center justify-between rounded-lg bg-secondary px-3 py-2.5 text-xs"><span className="text-muted-foreground">Turnaround</span><span className="font-semibold">~{shop.prepMinutes} minutes</span></div><div className="mt-3 flex items-center justify-between text-sm"><span className="text-muted-foreground">B/W from</span><span className="font-bold">{inr(Math.min(...shop.paperTypes.filter((paper) => paper.enabled).map((paper) => paper.bwPrice)))} / page</span></div></div>)}</div></section> */}
+      <section className="container-page py-12 md:py-20">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold text-primary">AVAILABLE NEAR YOU</p>
+            <h2 className="mt-2 text-section-title font-bold">Trusted shops, clear turnaround.</h2>
+          </div>
+          <Link to="/order"><Button variant="outline">Compare shops</Button></Link>
+        </div>
+        <div className="mt-8 grid gap-4 md:grid-cols-3">
+          {shops.filter((shop) => shop.acceptingOrders !== false).map((shop) => (
+            <div key={shop.id} className="card-surface hover-lift p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-base font-bold">{shop.name}</p>
+                  <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                    <MapPin className="h-3.5 w-3.5" /> {shop.distanceKm} km away
+                  </p>
+                </div>
+                <span className="inline-flex items-center gap-1 rounded-full bg-warning-light px-2 py-1 text-xs font-bold">
+                  <Star className="h-3.5 w-3.5 text-warning" /> {shop.rating}
+                </span>
+              </div>
+              <div className="mt-5 flex items-center justify-between rounded-lg bg-secondary px-3 py-2.5 text-xs">
+                <span className="text-muted-foreground">Turnaround</span>
+                <span className="font-semibold">~{shop.prepMinutes} minutes</span>
+              </div>
+              <div className="mt-3 flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">B/W from</span>
+                <span className="font-bold">
+                  {inr(Math.min(...shop.paperTypes.filter((paper) => paper.enabled).map((paper) => paper.bwPrice)))} / page
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* <section className="container-page pb-12 md:pb-20"><div className="relative overflow-hidden rounded-3xl bg-primary px-6 py-12 text-primary-foreground md:px-12 md:py-16"><div className="absolute -right-14 -top-14 h-56 w-56 rounded-full bg-white/10" /><div className="relative max-w-2xl"><span className="inline-flex items-center gap-2 text-sm font-bold"><BellRing className="h-4 w-4" /> Ready when you are</span><h2 className="mt-3 text-3xl font-bold tracking-tight md:text-4xl">Let the print shop work around your schedule.</h2><p className="mt-4 max-w-xl text-sm leading-6 opacity-90">Upload now, set each file exactly as you need it, and choose pickup or delivery when you are ready.</p><Link to="/order" className="mt-7 inline-block"><Button size="lg" variant="secondary">Start printing <ArrowRight className="h-4 w-4" /></Button></Link></div></div></section> */}
     </div>}

@@ -1,16 +1,27 @@
-import { createFileRoute, Link, useNavigate } from "@/lib/navigation";
-import { ShieldCheck, Users, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { useState, useEffect } from "react";
+import { createFileRoute, Link } from "@/lib/navigation";
+import { ShieldCheck, Clock, CheckCircle2, XCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { useStore } from "@/lib/store";
+import { listenToAllShops } from "@/lib/firestore/shops";
+import type { Shop, UserAccount } from "@/types";
 
 export const Route = createFileRoute("/admin/")({
   component: AdminDashboard,
 });
 
 function AdminDashboard() {
-  const navigate = useNavigate();
   const { session, getAllAccounts } = useAuth();
-  const { shopkeeperApplications } = useStore();
+  const [shops, setShops] = useState<Shop[]>([]);
+  const [accounts, setAccounts] = useState<UserAccount[]>([]);
+
+  useEffect(() => {
+    const unsubscribe = listenToAllShops(setShops);
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    getAllAccounts().then(setAccounts).catch(console.error);
+  }, [getAllAccounts]);
 
   if (!session || session.role !== "admin") {
     return (
@@ -34,10 +45,9 @@ function AdminDashboard() {
     );
   }
 
-  const accounts = getAllAccounts();
-  const pending = shopkeeperApplications.filter((a) => a.accountStatus === "pending");
-  const approved = shopkeeperApplications.filter((a) => a.accountStatus === "active");
-  const rejected = shopkeeperApplications.filter((a) => a.accountStatus === "rejected");
+  const pending = shops.filter((a) => a.accountStatus === "pending");
+  const approved = shops.filter((a) => a.accountStatus === "active");
+  const rejected = shops.filter((a) => a.accountStatus === "rejected");
 
   return (
     <main className="min-h-screen bg-background">
@@ -86,12 +96,12 @@ function AdminDashboard() {
         <div className="mt-8">
           <h2 className="text-lg font-bold">Shopkeeper Applications</h2>
           <div className="mt-4 space-y-3">
-            {shopkeeperApplications.length === 0 && (
+            {shops.length === 0 && (
               <div className="card-surface p-8 text-center">
                 <p className="text-sm text-muted-foreground">No applications yet.</p>
               </div>
             )}
-            {shopkeeperApplications.map((app) => (
+            {shops.map((app) => (
               <Link
                 key={app.id}
                 to="/admin/applications/$applicationId"
@@ -101,7 +111,7 @@ function AdminDashboard() {
                 <div>
                   <p className="font-semibold">{app.shopName}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {app.shopkeeperProfile.ownerName} · {app.shopkeeperProfile.phone}
+                    {app.shopkeeperProfile?.ownerName ?? "Shopkeeper"} · {app.shopkeeperProfile?.phone ?? app.whatsappNumber}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {app.shopAddress}, {app.city}
@@ -109,18 +119,18 @@ function AdminDashboard() {
                 </div>
                 <div className="text-right">
                   <span
-                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                      app.accountStatus === "pending"
-                        ? "bg-warning-light text-warning"
-                        : app.accountStatus === "active"
-                          ? "bg-success-light text-success"
-                          : "bg-destructive/10 text-destructive"
-                    }`}
+                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${app.accountStatus === "pending"
+                      ? "bg-warning-light text-warning"
+                      : app.accountStatus === "active"
+                        ? "bg-success-light text-success"
+                        : "bg-destructive/10 text-destructive"
+                      }`}
                   >
-                    {app.accountStatus.charAt(0).toUpperCase() + app.accountStatus.slice(1)}
+                    {(app.accountStatus ?? "pending").charAt(0).toUpperCase() +
+                      (app.accountStatus ?? "pending").slice(1)}
                   </span>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {new Date(app.createdAt).toLocaleDateString()}
+                    {app.createdAt ? new Date(app.createdAt).toLocaleDateString() : "—"}
                   </p>
                 </div>
               </Link>
@@ -131,7 +141,7 @@ function AdminDashboard() {
         <div className="mt-8">
           <h2 className="text-lg font-bold">All Accounts ({accounts.length})</h2>
           <div className="mt-4 space-y-2">
-            {accounts.map((acc) => (
+            {accounts.map((acc: UserAccount) => (
               <div key={acc.id} className="card-surface flex items-center justify-between p-4">
                 <div>
                   <p className="text-sm font-medium">{acc.email}</p>

@@ -18,7 +18,7 @@ function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoading(true);
 
@@ -28,51 +28,38 @@ function AdminLoginPage() {
       return;
     }
 
-    // Auto-create admin account if it doesn't exist (demo convenience)
-    let accounts = getAllAccounts();
-    let adminAccount = accounts.find(
-      (a) => a.email.toLowerCase() === email.toLowerCase() && a.role === "admin",
-    );
+    try {
+      const accounts = await getAllAccounts();
+      let adminAccount = accounts.find(
+        (a) => a.email.toLowerCase() === email.toLowerCase() && a.role === "admin",
+      );
 
-    if (!adminAccount) {
-      const result = createAccount(email, password, "admin", "Admin");
-      if (typeof result === "string") {
-        // Account exists with different role
-        toast.error("This email is registered as a non-admin account.");
-        setLoading(false);
-        return;
+      if (!adminAccount) {
+        const result = await createAccount(email, password, "admin", "Admin", "");
+        if (typeof result === "string") {
+          toast.error(result);
+          setLoading(false);
+          return;
+        }
+        adminAccount = result;
       }
-      adminAccount = result;
-    }
 
-    // Verify password
-    const hashFn = (pw: string) => {
-      let hash = 0;
-      for (let i = 0; i < pw.length; i++) {
-        const char = pw.charCodeAt(i);
-        hash = (hash << 5) - hash + char;
-        hash |= 0;
-      }
-      return `h_${Math.abs(hash).toString(36)}_${pw.length}`;
-    };
-
-    if (adminAccount.passwordHash !== hashFn(password)) {
-      toast.error("Incorrect password.");
+      signIn({
+        accountId: adminAccount.id,
+        role: "admin",
+        email: adminAccount.email,
+        name: adminAccount.name || "Admin",
+        phone: adminAccount.phone || "",
+        registrationStatus: "complete",
+        accountStatus: "active",
+      });
+      toast.success("Welcome, admin");
+      navigate({ to: "/admin" });
+    } catch (err: any) {
+      toast.error(err.message || "Admin login failed.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    signIn({
-      accountId: adminAccount.id,
-      role: "admin",
-      email: adminAccount.email,
-      name: "Admin",
-      registrationStatus: "complete",
-      accountStatus: "active",
-    });
-    toast.success("Welcome, admin");
-    navigate({ to: "/admin" });
-    setLoading(false);
   };
 
   return (

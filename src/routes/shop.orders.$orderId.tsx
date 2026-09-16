@@ -61,15 +61,24 @@ function ShopOrderDetail() {
   const futureActions = flow.slice(currentIndex + 1);
 
   function openPreview(doc: DocumentFile) {
+    if (doc.cloudinary?.url) {
+      window.open(doc.cloudinary.url, "_blank");
+      return;
+    }
     setPreviewFile(getCachedFile(doc.id));
     setPreviewDocument(doc);
   }
 
   function downloadFile(doc: DocumentFile) {
+    if (doc.cloudinary?.url) {
+      window.open(doc.cloudinary.url, "_blank");
+      toast.success(`Opening ${doc.name}`);
+      return;
+    }
     const file = getCachedFile(doc.id);
     if (!file) {
       toast.error("File not available", {
-        description: "The original file was not found. It may have been lost on page refresh.",
+        description: "The original file was not found locally.",
       });
       return;
     }
@@ -121,6 +130,7 @@ function ShopOrderDetail() {
             <div className="mt-3 space-y-2">
               {order.documents.map((d) => {
                 const file = getCachedFile(d.id);
+                const hasFile = !!file || !!d.cloudinary?.url;
                 return (
                   <div
                     key={d.id}
@@ -138,12 +148,12 @@ function ShopOrderDetail() {
                         type="button"
                         className={cn(
                           "rounded-md p-1.5 hover:bg-secondary",
-                          file
+                          hasFile
                             ? "text-muted-foreground hover:text-foreground"
                             : "cursor-not-allowed text-muted-foreground/40",
                         )}
-                        title={file ? "Preview" : "File not available"}
-                        disabled={!file}
+                        title={hasFile ? "Preview document" : "File not available"}
+                        disabled={!hasFile}
                         onClick={() => openPreview(d)}
                       >
                         <Eye className="h-4 w-4" />
@@ -152,12 +162,12 @@ function ShopOrderDetail() {
                         type="button"
                         className={cn(
                           "rounded-md p-1.5 hover:bg-secondary",
-                          file
+                          hasFile
                             ? "text-muted-foreground hover:text-foreground"
                             : "cursor-not-allowed text-muted-foreground/40",
                         )}
-                        title={file ? "Download" : "File not available"}
-                        disabled={!file}
+                        title={hasFile ? "Download document" : "File not available"}
+                        disabled={!hasFile}
                         onClick={() => downloadFile(d)}
                       >
                         <Download className="h-4 w-4" />
@@ -367,7 +377,7 @@ function ShopOrderDetail() {
       >
         <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
-            <DialogTitle className="pr-8 break-words">
+            <DialogTitle className="pr-8 wrap-break-word">
               {previewDocument?.name ?? "Document preview"}
             </DialogTitle>
             <DialogDescription>
@@ -381,8 +391,8 @@ function ShopOrderDetail() {
           )}
           {(previewFile?.type === "application/pdf" ||
             previewDocument?.name.toLowerCase().endsWith(".pdf")) && (
-            <DocumentPdfPreview file={previewFile} name={previewDocument?.name} />
-          )}
+              <DocumentPdfPreview file={previewFile} name={previewDocument?.name} />
+            )}
           {!previewFile && (
             <div className="rounded-lg border border-dashed border-border bg-secondary/50 p-6 text-center">
               <FileText className="mx-auto h-8 w-8 text-primary" />

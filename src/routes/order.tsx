@@ -34,6 +34,7 @@ import { DocumentUploadCard } from "@/components/home/DocumentUploadCard";
 import { cn } from "@/lib/utils";
 import { newOrderId, useStore } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
+import { uploadFileToCloudinary } from "@/lib/cloudinary";
 import { calculateDocumentPrices, calculateOrderPrice, inr, paymentSplit } from "@/lib/pricing";
 import { detectPageCount } from "@/lib/document-pages";
 import { paymentMethodLabel } from "@/lib/labels";
@@ -180,9 +181,8 @@ function FilePrintOptions({
             <p className="mt-1 text-xs text-muted-foreground">
               {document.detectingPages
                 ? "Detecting pages..."
-                : `${document.pages} page${document.pages === 1 ? "" : "s"} · ${document.sizeMb} MB · ${
-                    document.pageCountDetected ? "Detected automatically" : "Confirm page count"
-                  }`}
+                : `${document.pages} page${document.pages === 1 ? "" : "s"} · ${document.sizeMb} MB · ${document.pageCountDetected ? "Detected automatically" : "Confirm page count"
+                }`}
             </p>
             <p className="mt-1 text-xs font-semibold text-foreground">
               {document.detectingPages
@@ -591,8 +591,17 @@ function DocumentPreviewDialog({
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
-function shopOpenDays(hours: string): Set<string> {
+function shopOpenDays(shop: Shop): Set<string> {
   const daySet = new Set<string>();
+
+  if (shop.workingDays?.length) {
+    for (const day of shop.workingDays) {
+      daySet.add(day.charAt(0).toUpperCase() + day.slice(1));
+    }
+    return daySet;
+  }
+
+  const hours = shop.hours ?? "Mon – Sat · 8:00 AM – 9:00 PM";
   const prefix = hours.split("·")[0]?.trim() ?? "";
   if (/sun/i.test(prefix) && !/mon/i.test(prefix)) {
     daySet.add("Sun");
@@ -621,7 +630,7 @@ function shopOpenDays(hours: string): Set<string> {
 function shopAvailability(shop: Shop, now = new Date()) {
   if (!shop.openingTime || !shop.closingTime) return { open: true, label: "Open" };
   const todayName = DAY_NAMES[now.getDay()];
-  const openDays = shopOpenDays(shop.hours);
+  const openDays = shopOpenDays(shop);
   if (!openDays.has(todayName!)) return { open: false, label: "Closed" };
   const toMinutes = (value: string) => {
     const [hours = 0, minutes = 0] = value.split(":").map(Number);
@@ -692,6 +701,7 @@ function OrderPage() {
   const [fulfillmentDialogOpen, setFulfillmentDialogOpen] = useState(false);
   const [shopConfirmed, setShopConfirmed] = useState(true);
   const [mobileShopSummaryOpen, setMobileShopSummaryOpen] = useState(false);
+  const [submittingOrder, setSubmittingOrder] = useState(false);
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
   const addMoreFilesRef = useRef<HTMLInputElement>(null);
   const draftRestoredRef = useRef(false);
@@ -759,6 +769,9 @@ function OrderPage() {
   const filteredSortedShops = useMemo(() => {
     let result = [...shops];
 
+    // Exclude shops that have paused order intake.
+    result = result.filter((s) => s.acceptingOrders !== false);
+
     // Always exclude closed shops.
     result = result.filter((s) => shopAvailability(s).open);
 
@@ -772,7 +785,7 @@ function OrderPage() {
 
     // Nearest sort (by existing distanceKm field).
     if (shopFilters.nearest) {
-      result.sort((a, b) => a.distanceKm - b.distanceKm);
+      result.sort((a, b) => (a.distanceKm ?? 1) - (b.distanceKm ?? 1));
     }
 
     // Lowest price sort (by actual calculated order total).
@@ -887,20 +900,22 @@ function OrderPage() {
       cacheFile(item.document.id, item.file);
     }
 
-    // Detect pages in parallel and update each document as it completes.
+    // Detect pages and upload to Cloudinary in parallel.
     await Promise.all(
       pendingDocs.map(async ({ file, document }) => {
         try {
           const pageInfo = await detectPageCount(file);
+          const cloudinaryRef = await uploadFileToCloudinary(file);
           setDocs((current) =>
             current.map((doc) =>
               doc.id === document.id
                 ? {
-                    ...doc,
-                    pages: pageInfo.pages,
-                    pageCountDetected: pageInfo.detected,
-                    detectingPages: false,
-                  }
+                  ...doc,
+                  pages: pageInfo.pages,
+                  pageCountDetected: pageInfo.detected,
+                  detectingPages: false,
+                  cloudinary: cloudinaryRef,
+                }
                 : doc,
             ),
           );
@@ -921,7 +936,7 @@ function OrderPage() {
     toast.success(`${incoming.length} document${incoming.length > 1 ? "s" : ""} added`, {
       description: needsReview
         ? `${needsReview} file${needsReview > 1 ? "s need" : " needs"} page-count review.`
-        : "Page counts detected automatically.",
+        : "Files uploaded & page count detected automatically.",
     });
   };
 
@@ -1012,7 +1027,8 @@ function OrderPage() {
     return "";
   };
 
-  const confirm = () => {
+  const confirm = async () => {
+    if (submittingOrder) return;
     if (fulfillment === "delivery" && !address) {
       toast.error("Select a delivery address before placing the order.");
       return;
@@ -1027,44 +1043,79 @@ function OrderPage() {
       navigate({ to: "/auth/customer/login" });
       return;
     }
-    const now = new Date().toISOString();
-    const primaryConfig = docs[0]?.printConfig ?? config;
-    const primaryPaper = shop.paperTypes.find((item) => item.id === primaryConfig.paperTypeId);
-    const order: Order = {
-      id: newOrderId(orders),
-      customerName: profile.name,
-      customerPhone: profile.phone,
-      shopId: shop.id,
-      shopName: shop.name,
-      documents: docs,
-      config: primaryConfig,
-      configLabels: {
-        paper: primaryPaper?.name ?? "A4 Paper",
-        printType: primaryConfig.printType === "bw" ? "Black & White" : "Colour",
-        side: primaryConfig.side === "single" ? "Single Side" : "Double Side",
-        orientation: primaryConfig.orientation === "portrait" ? "Portrait" : "Landscape",
-        binding: shop.binding.find((b) => b.id === primaryConfig.bindingId)?.name ?? "None",
-        additional: primaryConfig.additionalIds
-          .map((id) => shop.additional.find((a) => a.id === id)?.name)
-          .filter((n): n is string => !!n),
-      },
-      fulfillment,
-      address: fulfillment === "delivery" ? address : null,
-      price,
-      paymentMethod: method,
-      amountPaid: split.paidNow,
-      balance: split.balance,
-      paymentStatus: split.paidNow === 0 ? "unpaid" : split.balance === 0 ? "paid" : "partial",
-      status: "NEW",
-      createdAt: now,
-      updatedAt: now,
-      timeline: [{ status: "NEW", at: now }],
-    };
-    placeOrder(order);
-    clearPendingDocs();
-    setUploadedFileNames([]);
-    toast.success("Order placed", { description: `${order.id} sent to ${shop.name}` });
-    navigate({ to: "/order-confirmation/$orderId", params: { orderId: order.id } });
+
+    setSubmittingOrder(true);
+    toast.loading("Placing your order on Firestore...", { id: "place-order" });
+
+    try {
+      // Ensure all documents have Cloudinary metadata before persisting to Firestore
+      const finalDocs = await Promise.all(
+        docs.map(async (doc) => {
+          if (doc.cloudinary) return doc;
+          const localFile = uploadedFiles[doc.id];
+          if (localFile) {
+            const cloudinaryRef = await uploadFileToCloudinary(localFile);
+            return { ...doc, cloudinary: cloudinaryRef };
+          }
+          return doc;
+        })
+      );
+
+      const now = new Date().toISOString();
+      const primaryConfig = finalDocs[0]?.printConfig ?? config;
+      const primaryPaper = shop.paperTypes.find((item) => item.id === primaryConfig.paperTypeId);
+
+      const generatedId = `OMX-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      const order: Order = {
+        id: generatedId,
+        customerId: session?.accountId || `cust-${Date.now()}`,
+        customerName: profile.name,
+        customerPhone: profile.phone,
+        shopId: shop.id,
+        shopName: shop.name,
+        documents: finalDocs,
+        config: primaryConfig,
+        configLabels: {
+          paper: primaryPaper?.name ?? "A4 Paper",
+          printType: primaryConfig.printType === "bw" ? "Black & White" : "Colour",
+          side: primaryConfig.side === "single" ? "Single Side" : "Double Side",
+          orientation: primaryConfig.orientation === "portrait" ? "Portrait" : "Landscape",
+          binding: shop.binding.find((b) => b.id === primaryConfig.bindingId)?.name ?? "None",
+          additional: primaryConfig.additionalIds
+            .map((id) => shop.additional.find((a) => a.id === id)?.name)
+            .filter((n): n is string => !!n),
+        },
+        fulfillment,
+        address: fulfillment === "delivery" ? address : null,
+        price,
+        paymentMethod: method,
+        amountPaid: split.paidNow,
+        balance: split.balance,
+        paymentStatus: split.paidNow === 0 ? "unpaid" : split.balance === 0 ? "paid" : "partial",
+        status: "NEW",
+        createdAt: now,
+        updatedAt: now,
+        timeline: [{ status: "NEW", at: now }],
+      };
+
+      const createdOrder = await placeOrder(order);
+      clearPendingDocs();
+      setUploadedFileNames([]);
+      toast.success("Order placed successfully!", {
+        id: "place-order",
+        description: `${createdOrder.id} sent to ${shop.name}`,
+      });
+      navigate({ to: "/order-confirmation/$orderId", params: { orderId: createdOrder.id } });
+    } catch (error: any) {
+      console.error("Order placement error:", error);
+      toast.error("Failed to place order. Please try again.", {
+        id: "place-order",
+        description: error.message || "Network or database error.",
+      });
+    } finally {
+      setSubmittingOrder(false);
+    }
   };
 
   return (
@@ -1124,9 +1175,9 @@ function OrderPage() {
                             all.map((item) =>
                               item.id === document.id
                                 ? {
-                                    ...item,
-                                    printConfig: updater(item.printConfig ?? defaultConfig),
-                                  }
+                                  ...item,
+                                  printConfig: updater(item.printConfig ?? defaultConfig),
+                                }
                                 : item,
                             ),
                           )
@@ -1450,11 +1501,10 @@ function OrderPage() {
                     <p className="mt-3 sm:mt-0 text-sm font-semibold">Home delivery</p>
                     <p className="text-xs text-muted-foreground">
                       {shop.delivery.enabled
-                        ? `2 to 4 hours · ${inr(shop.delivery.fee)} fee${
-                            shop.delivery.freeAbove
-                              ? ` (free above ${inr(shop.delivery.freeAbove)})`
-                              : ""
-                          }`
+                        ? `2 to 4 hours · ${inr(shop.delivery.fee)} fee${shop.delivery.freeAbove
+                          ? ` (free above ${inr(shop.delivery.freeAbove)})`
+                          : ""
+                        }`
                         : "This shop does not deliver"}
                     </p>
                   </button>
@@ -1650,16 +1700,16 @@ function OrderPage() {
                                   {filePaper?.name ?? "Paper"} ·{" "}
                                   {fileConfig.bindingId
                                     ? shop.binding.find((item) => item.id === fileConfig.bindingId)
-                                        ?.name
+                                      ?.name
                                     : "No binding"}
                                   {fileConfig.additionalIds.length
                                     ? ` · ${fileConfig.additionalIds
-                                        .map(
-                                          (id) =>
-                                            shop.additional.find((item) => item.id === id)?.name,
-                                        )
-                                        .filter(Boolean)
-                                        .join(", ")}`
+                                      .map(
+                                        (id) =>
+                                          shop.additional.find((item) => item.id === id)?.name,
+                                      )
+                                      .filter(Boolean)
+                                      .join(", ")}`
                                     : ""}
                                 </p>
                                 {document.instructions && (

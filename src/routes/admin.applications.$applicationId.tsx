@@ -1,12 +1,13 @@
 import { createFileRoute, Link, useNavigate } from "@/lib/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, CheckCircle2, XCircle, MapPin, Phone, Clock, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
-import { useStore } from "@/lib/store";
+import { getShopById, updateShopInFirestore } from "@/lib/firestore/shops";
+import type { Shop } from "@/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin/applications/$applicationId")({
@@ -17,10 +18,16 @@ function AdminApplicationDetail() {
   const { applicationId } = Route.useParams();
   const navigate = useNavigate();
   const { session, updateAccount } = useAuth();
-  const { shopkeeperApplications, updateShopkeeperApplication } = useStore();
+  const [application, setApplication] = useState<Shop | undefined>();
   const [rejectReason, setRejectReason] = useState("");
   const [showRejectForm, setShowRejectForm] = useState(false);
   const [processing, setProcessing] = useState(false);
+
+  useEffect(() => {
+    getShopById(applicationId)
+      .then(setApplication)
+      .catch(console.error);
+  }, [applicationId]);
 
   if (!session || session.role !== "admin") {
     return (
@@ -37,8 +44,6 @@ function AdminApplicationDetail() {
       </main>
     );
   }
-
-  const application = shopkeeperApplications.find((a) => a.id === applicationId);
 
   if (!application) {
     return (
@@ -59,10 +64,13 @@ function AdminApplicationDetail() {
   const approve = () => {
     if (processing) return;
     setProcessing(true);
-    updateShopkeeperApplication(application.id, { accountStatus: "active" });
-    updateAccount(application.accountId, { accountStatus: "active" });
+    updateShopInFirestore(application.id, { accountStatus: "active" });
+    const targetAccountId = application.ownerId;
+    if (targetAccountId) {
+      updateAccount(targetAccountId, { accountStatus: "active", shopId: application.id });
+    }
     toast.success("Application approved", {
-      description: `${application.shopName} is now active.`,
+      description: `${application.shopName ?? application.name} is now active.`,
     });
     navigate({ to: "/admin" });
     setProcessing(false);
@@ -76,17 +84,22 @@ function AdminApplicationDetail() {
       return;
     }
     setProcessing(true);
-    updateShopkeeperApplication(application.id, {
+    updateShopInFirestore(application.id, {
       accountStatus: "rejected",
       rejectionReason: rejectReason.trim(),
     });
-    updateAccount(application.accountId, { accountStatus: "rejected" });
+    const targetAccountId = application.ownerId;
+    if (targetAccountId) {
+      updateAccount(targetAccountId, { accountStatus: "rejected" });
+    }
     toast.success("Application rejected");
     navigate({ to: "/admin" });
     setProcessing(false);
   };
 
-  const hours = `${application.services.businessHoursFrom} – ${application.services.businessHoursTo}`;
+  const hours = application.services
+    ? `${application.services.businessHoursFrom} – ${application.services.businessHoursTo}`
+    : "—";
 
   return (
     <main className="min-h-screen bg-background">
@@ -97,7 +110,7 @@ function AdminApplicationDetail() {
           </Link>
           <div>
             <h1 className="text-xl font-bold">Review Application</h1>
-            <p className="text-sm text-muted-foreground">{application.shopName}</p>
+            <p className="text-sm text-muted-foreground">{application.shopName ?? application.name}</p>
           </div>
         </div>
       </div>
@@ -114,27 +127,30 @@ function AdminApplicationDetail() {
             )}
           >
             Status:{" "}
-            {application.accountStatus.charAt(0).toUpperCase() + application.accountStatus.slice(1)}
+            {(application.accountStatus ?? "pending")
+              .charAt(0)
+              .toUpperCase() +
+              (application.accountStatus ?? "pending").slice(1)}
           </div>
 
           {/* Owner details */}
           <Section title="Owner Details" icon={Phone}>
-            <Row label="Owner name" value={application.shopkeeperProfile.ownerName} />
-            <Row label="Phone" value={application.shopkeeperProfile.phone} />
-            {application.shopkeeperProfile.alternatePhone && (
+            <Row label="Owner name" value={application.shopkeeperProfile?.ownerName ?? "—"} />
+            <Row label="Phone" value={application.shopkeeperProfile?.phone ?? application.whatsappNumber ?? "—"} />
+            {application.shopkeeperProfile?.alternatePhone && (
               <Row label="Alternate phone" value={application.shopkeeperProfile.alternatePhone} />
             )}
-            <Row label="Username" value={application.shopkeeperProfile.username} />
+            <Row label="Username" value={application.shopkeeperProfile?.username ?? "—"} />
           </Section>
 
           {/* Shop details */}
           <Section title="Shop Details" icon={Store}>
-            <Row label="Shop name" value={application.shopName} />
-            <Row label="Address" value={application.shopAddress} />
+            <Row label="Shop name" value={application.shopName ?? application.name} />
+            <Row label="Address" value={application.shopAddress ?? application.address ?? "—"} />
             <Row label="Area" value={application.area || "—"} />
-            <Row label="City" value={application.city} />
+            <Row label="City" value={application.city || "—"} />
             <Row label="State" value={application.state || "—"} />
-            <Row label="Pincode" value={application.pincode} />
+            <Row label="Pincode" value={application.pincode || "—"} />
             {application.whatsappNumber && (
               <Row label="WhatsApp" value={application.whatsappNumber} />
             )}
@@ -144,10 +160,10 @@ function AdminApplicationDetail() {
           </Section>
 
           {/* Images */}
-          {application.shopImages.length > 0 && (
+          {(application.shopImages?.length ?? 0) > 0 && (
             <Section title="Shop Images" icon={MapPin}>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {application.shopImages.map((img) => (
+                {application.shopImages!.map((img) => (
                   <div key={img.id} className="overflow-hidden rounded-lg border border-border">
                     <img
                       src={img.imageUrl}
@@ -164,36 +180,38 @@ function AdminApplicationDetail() {
           )}
 
           {/* Services */}
-          <Section title="Services & Hours" icon={Clock}>
-            <Row
-              label="Paper types"
-              value={[
-                application.services.a4 && "A4",
-                application.services.a3 && "A3",
-                application.services.bondSheet && "Bond",
-                application.services.photoSheet && "Photo",
-              ]
-                .filter(Boolean)
-                .join(", ")}
-            />
-            <Row
-              label="Printing"
-              value={[application.services.bw && "B&W", application.services.colour && "Colour"]
-                .filter(Boolean)
-                .join(", ")}
-            />
-            <Row
-              label="Fulfillment"
-              value={[
-                application.services.pickup && "Pickup",
-                application.services.delivery && `Delivery (₹${application.services.deliveryFee})`,
-              ]
-                .filter(Boolean)
-                .join(", ")}
-            />
-            <Row label="Hours" value={hours} />
-            <Row label="Working days" value={application.services.workingDays.join(", ")} />
-          </Section>
+          {application.services && (
+            <Section title="Services & Hours" icon={Clock}>
+              <Row
+                label="Paper types"
+                value={[
+                  application.services.a4 && "A4",
+                  application.services.a3 && "A3",
+                  application.services.bondSheet && "Bond",
+                  application.services.photoSheet && "Photo",
+                ]
+                  .filter(Boolean)
+                  .join(", ")}
+              />
+              <Row
+                label="Printing"
+                value={[application.services.bw && "B&W", application.services.colour && "Colour"]
+                  .filter(Boolean)
+                  .join(", ")}
+              />
+              <Row
+                label="Fulfillment"
+                value={[
+                  application.services.pickup && "Pickup",
+                  application.services.delivery && `Delivery (₹${application.services.deliveryFee})`,
+                ]
+                  .filter(Boolean)
+                  .join(", ")}
+              />
+              <Row label="Hours" value={hours} />
+              <Row label="Working days" value={application.services.workingDays.join(", ")} />
+            </Section>
+          )}
 
           {/* Rejection reason (if rejected) */}
           {application.accountStatus === "rejected" && application.rejectionReason && (

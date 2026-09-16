@@ -9,7 +9,6 @@ import {
   type ReactNode,
 } from "react";
 import type {
-  Account,
   Address,
   CustomerProfile,
   DocumentFile,
@@ -17,13 +16,18 @@ import type {
   OrderDraft,
   OrderStatus,
   Shop,
-  ShopApplication,
   ShopkeeperProfile,
   SupportTicket,
 } from "@/types";
-import { seedAddresses, seedOrders, seedProfile, seedShops } from "./seed";
 
-const STORAGE_KEY = "omx-state-v1";
+import { seedAddresses, seedProfile, seedShops } from "./seed";
+import { listenToShops, updateShopInFirestore } from "@/lib/firestore/shops";
+import { saveShopkeeperProfileToFirestore } from "@/lib/firestore/users";
+import {
+  createFirestoreOrder,
+  updateOrderStatusInFirestore,
+  listenToAllOrders,
+} from "@/lib/firestore/orders";
 
 interface AppState {
   shops: Shop[];
@@ -35,13 +39,12 @@ interface AppState {
   pendingDocs: DocumentFile[];
   uploadedFileNames: string[];
   orderDraft: OrderDraft | null;
-  shopkeeperApplications: ShopApplication[];
   shopkeeperProfiles: Record<string, ShopkeeperProfile>;
 }
 
 const initialState: AppState = {
   shops: seedShops,
-  orders: seedOrders,
+  orders: [],
   addresses: seedAddresses,
   profile: seedProfile,
   tickets: [],
@@ -49,7 +52,6 @@ const initialState: AppState = {
   pendingDocs: [],
   uploadedFileNames: [],
   orderDraft: null,
-  shopkeeperApplications: [],
   shopkeeperProfiles: {},
 };
 
@@ -57,8 +59,8 @@ interface StoreValue extends AppState {
   hydrated: boolean;
   activeShop: Shop;
   updateShop: (shopId: string, updater: (shop: Shop) => Shop) => void;
-  placeOrder: (order: Order) => void;
-  advanceOrder: (orderId: string, status: OrderStatus) => void;
+  placeOrder: (order: Order) => Promise<Order>;
+  advanceOrder: (orderId: string, status: OrderStatus) => Promise<void>;
   collectBalance: (orderId: string, via: "cash" | "upi" | "card") => void;
   saveAddress: (address: Address) => void;
   deleteAddress: (id: string) => void;
@@ -74,9 +76,6 @@ interface StoreValue extends AppState {
   clearOrderDraft: () => void;
   cacheFile: (id: string, file: File) => void;
   getCachedFile: (id: string) => File | undefined;
-  submitShopkeeperApplication: (application: ShopApplication) => void;
-  updateShopkeeperApplication: (id: string, patch: Partial<ShopApplication>) => void;
-  getShopkeeperApplication: (accountId: string) => ShopApplication | undefined;
   saveShopkeeperProfile: (accountId: string, profile: ShopkeeperProfile) => void;
   getShopkeeperProfile: (accountId: string) => ShopkeeperProfile | undefined;
 }
@@ -90,52 +89,55 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const uploadedFilesMapRef = useRef<Map<string, File>>(new Map());
   const [hydrated, setHydrated] = useState(false);
 
+  // Subscribe to Shops in Firestore
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const saved = JSON.parse(raw) as AppState;
-        // Merge shops: seed is the source of truth for the list; user modifications are preserved.
-        const savedById = new Map(saved.shops.map((s) => [s.id, s]));
-        const merged = initialState.shops.map((seed) => savedById.get(seed.id) ?? seed);
-        setState({ ...initialState, ...saved, shops: merged });
-      }
-    } catch {
-      /* ignore corrupt state */
-    }
-    setHydrated(true);
+    const unsubscribeShops = listenToShops((updatedShops) => {
+      setState((s) => ({ ...s, shops: updatedShops }));
+    });
+    return () => unsubscribeShops();
   }, []);
 
+  // Subscribe to Orders in Firestore (Real-Time updates)
   useEffect(() => {
-    if (!hydrated) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {
-      /* storage full */
-    }
-  }, [state, hydrated]);
+    const unsubscribeOrders = listenToAllOrders(
+      (firestoreOrders) => {
+        setState((s) => ({
+          ...s,
+          orders: firestoreOrders,
+        }));
+        setHydrated(true);
+      },
+      (error) => {
+        console.warn("Failed to subscribe to orders in Firestore, continuing with hydration:", error);
+        setHydrated(true);
+      }
+    );
+    return () => unsubscribeOrders();
+  }, []);
 
   const updateShop = useCallback((shopId: string, updater: (shop: Shop) => Shop) => {
-    setState((s) => ({
-      ...s,
-      shops: s.shops.map((shop) => (shop.id === shopId ? updater(shop) : shop)),
-    }));
+    setState((s) => {
+      const currentShop = s.shops.find((shop) => shop.id === shopId);
+      if (!currentShop) return s;
+      const updated = updater(currentShop);
+      updateShopInFirestore(shopId, updated).catch(console.error);
+      return {
+        ...s,
+        shops: s.shops.map((shop) => (shop.id === shopId ? updated : shop)),
+      };
+    });
   }, []);
 
-  const placeOrder = useCallback((order: Order) => {
-    setState((s) => ({ ...s, orders: [order, ...s.orders], orderDraft: null }));
+  const placeOrder = useCallback(async (order: Order): Promise<Order> => {
+    // Persist directly to Firestore
+    const created = await createFirestoreOrder(order);
+    setState((s) => ({ ...s, orderDraft: null }));
+    return created;
   }, []);
 
-  const advanceOrder = useCallback((orderId: string, status: OrderStatus) => {
-    const at = new Date().toISOString();
-    setState((s) => ({
-      ...s,
-      orders: s.orders.map((o) =>
-        o.id === orderId
-          ? { ...o, status, updatedAt: at, timeline: [...o.timeline, { status, at }] }
-          : o,
-      ),
-    }));
+  const advanceOrder = useCallback(async (orderId: string, status: OrderStatus): Promise<void> => {
+    // Persist status change to Firestore, triggering real-time update listeners
+    await updateOrderStatusInFirestore(orderId, status);
   }, []);
 
   const collectBalance = useCallback((orderId: string, via: "cash" | "upi" | "card") => {
@@ -144,13 +146,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       orders: s.orders.map((o) =>
         o.id === orderId
           ? {
-              ...o,
-              amountPaid: o.price.total,
-              balance: 0,
-              paymentStatus: "paid",
-              balanceCollectedVia: via,
-              updatedAt: new Date().toISOString(),
-            }
+            ...o,
+            amountPaid: o.price.total,
+            balance: 0,
+            paymentStatus: "paid",
+            balanceCollectedVia: via,
+            updatedAt: new Date().toISOString(),
+          }
           : o,
       ),
     }));
@@ -217,41 +219,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return uploadedFilesMapRef.current.get(id);
   }, []);
 
-  const submitShopkeeperApplication = useCallback((application: ShopApplication) => {
-    setState((s) => {
-      const existing = s.shopkeeperApplications.findIndex(
-        (a) => a.accountId === application.accountId,
-      );
-      if (existing >= 0) {
-        const apps = [...s.shopkeeperApplications];
-        apps[existing] = application;
-        return { ...s, shopkeeperApplications: apps };
-      }
-      return { ...s, shopkeeperApplications: [...s.shopkeeperApplications, application] };
-    });
-  }, []);
-
-  const updateShopkeeperApplication = useCallback((id: string, patch: Partial<ShopApplication>) => {
-    setState((s) => ({
-      ...s,
-      shopkeeperApplications: s.shopkeeperApplications.map((a) =>
-        a.id === id ? { ...a, ...patch, updatedAt: new Date().toISOString() } : a,
-      ),
-    }));
-  }, []);
-
-  const getShopkeeperApplication = useCallback(
-    (accountId: string) => {
-      return state.shopkeeperApplications.find((a) => a.accountId === accountId);
-    },
-    [state.shopkeeperApplications],
-  );
-
   const saveShopkeeperProfile = useCallback((accountId: string, profile: ShopkeeperProfile) => {
     setState((s) => ({
       ...s,
       shopkeeperProfiles: { ...s.shopkeeperProfiles, [accountId]: profile },
     }));
+    saveShopkeeperProfileToFirestore(accountId, profile).catch(console.error);
   }, []);
 
   const getShopkeeperProfile = useCallback(
@@ -284,9 +257,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       clearOrderDraft,
       cacheFile,
       getCachedFile,
-      submitShopkeeperApplication,
-      updateShopkeeperApplication,
-      getShopkeeperApplication,
       saveShopkeeperProfile,
       getShopkeeperProfile,
     }),
@@ -311,9 +281,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       clearOrderDraft,
       cacheFile,
       getCachedFile,
-      submitShopkeeperApplication,
-      updateShopkeeperApplication,
-      getShopkeeperApplication,
       saveShopkeeperProfile,
       getShopkeeperProfile,
     ],

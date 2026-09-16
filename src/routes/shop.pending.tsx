@@ -1,8 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@/lib/navigation";
-import { Clock, Printer } from "lucide-react";
+import { Clock } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { useStore } from "@/lib/store";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { getShopByOwner } from "@/lib/firestore/shops";
+import type { Shop } from "@/types";
 
 export const Route = createFileRoute("/shop/pending")({
   component: ShopPendingPage,
@@ -11,7 +12,7 @@ export const Route = createFileRoute("/shop/pending")({
 function ShopPendingPage() {
   const navigate = useNavigate();
   const { session, signOut } = useAuth();
-  const { getShopkeeperApplication } = useStore();
+  const [application, setApplication] = useState<Shop | undefined>();
 
   useEffect(() => {
     if (!session || session.role !== "shopkeeper") {
@@ -24,14 +25,17 @@ function ShopPendingPage() {
     }
     if (session.accountStatus === "rejected") {
       navigate({ to: "/shop/rejected" });
+      return;
     }
+    // Load shop/application from Firestore
+    getShopByOwner(session.accountId)
+      .then(setApplication)
+      .catch(console.error);
   }, [session, navigate]);
 
   if (!session || session.role !== "shopkeeper" || session.accountStatus === "active" || session.accountStatus === "rejected") {
     return null;
   }
-
-  const application = getShopkeeperApplication(session.accountId);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-5">
@@ -50,7 +54,7 @@ function ShopPendingPage() {
               {application.shopAddress}, {application.city}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Submitted {new Date(application.createdAt).toLocaleDateString()}
+              Submitted {application.createdAt ? new Date(application.createdAt).toLocaleDateString() : "—"}
             </p>
           </div>
         )}
