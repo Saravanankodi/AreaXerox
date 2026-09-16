@@ -72,8 +72,6 @@ export const defaultAdditionalOptions: ServiceOption[] = [
 export function buildShopFromApplication(app: ShopApplication, email = ""): Shop {
   const hours = `${app.services.businessHoursFrom} – ${app.services.businessHoursTo}`;
   const days = app.services.workingDays;
-  const workingDaysFrom = days.length > 0 ? days[0] : "Mon";
-  const workingDaysTo = days.length > 1 ? days[days.length - 1] : "Sat";
 
   const papers = defaultPaperTypes.map((p) => {
     if (p.id === "a4") return { ...p, enabled: app.services.a4 };
@@ -92,8 +90,7 @@ export function buildShopFromApplication(app: ShopApplication, email = ""): Shop
     email: email || `${app.shopkeeperProfile.username}@xeroxmate.com`,
     address: `${app.shopAddress}${app.area ? `, ${app.area}` : ""}, ${app.city} - ${app.pincode}`,
     hours,
-    workingDaysFrom,
-    workingDaysTo,
+    workingDays: days,
     openingTime: app.services.businessHoursFrom,
     closingTime: app.services.businessHoursTo,
     rating: 4.9,
@@ -120,7 +117,7 @@ export function buildShopFromApplication(app: ShopApplication, email = ""): Shop
       fee: app.services.deliveryFee || 30,
       freeAbove: 200,
       etaMinutes: "30-45 min",
-      areas: [app.area || app.city],
+      areas: [app.area || app.city || ""],
     },
     payments: {
       full: true,

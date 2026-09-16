@@ -43,28 +43,30 @@ export async function submitShopkeeperApplication(application: ShopApplication):
   await setDoc(doc(db, "shopApplications", appId), appData, { merge: true });
 
   // Update shopkeeper account record
-  await setDoc(
-    doc(db, "shopkeepers", application.accountId),
-    {
-      accountId: application.accountId,
-      registrationStatus: "complete",
-      accountStatus: "pending",
-      shopName: application.shopName,
-      shopAddress: application.shopAddress,
-      area: application.area,
-      city: application.city,
-      state: application.state,
-      pincode: application.pincode,
-      whatsappNumber: application.whatsappNumber,
-      shopDescription: application.shopDescription,
-      shopImages: application.shopImages,
-      services: application.services,
-      shopkeeperProfile: application.shopkeeperProfile,
-      applicationId: appId,
-      updatedAt: new Date().toISOString(),
-    },
-    { merge: true },
-  );
+  if (application.accountId) {
+    await setDoc(
+      doc(db, "shopkeepers", application.accountId),
+      {
+        accountId: application.accountId,
+        registrationStatus: "complete",
+        accountStatus: "pending",
+        shopName: application.shopName,
+        shopAddress: application.shopAddress,
+        area: application.area,
+        city: application.city,
+        state: application.state,
+        pincode: application.pincode,
+        whatsappNumber: application.whatsappNumber,
+        shopDescription: application.shopDescription,
+        shopImages: application.shopImages,
+        services: application.services,
+        shopkeeperProfile: application.shopkeeperProfile,
+        applicationId: appId,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true },
+    );
+  }
 }
 
 export async function updateShopkeeperApplication(

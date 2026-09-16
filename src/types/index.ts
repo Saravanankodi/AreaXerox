@@ -61,6 +61,22 @@ export type OrderStatus =
  * ACCOUNT
  * ======================================================= */
 
+export interface Account {
+  id: string;
+
+  email: string;
+
+  role: AccountRole;
+
+  registrationStatus: RegistrationStatus;
+
+  accountStatus: AccountStatus;
+
+  createdAt: string;
+
+  updatedAt: string;
+}
+
 export type AccountRole =
   | "customer"
   | "shopkeeper"
@@ -175,6 +191,49 @@ export interface ShopApplicationServices {
   businessHoursTo: string;
 
   workingDays: string[];
+}
+
+
+/* =========================================================
+ * SHOP APPLICATION
+ * ======================================================= */
+
+export interface ShopApplication extends Shop {
+  accountId?: string;
+
+  shopName: string;
+
+  shopkeeperProfile: {
+    ownerName: string;
+    phone: string;
+    username: string;
+  };
+
+  whatsappNumber?: string;
+
+  shopAddress?: string;
+
+  area?: string;
+
+  city?: string;
+
+  state?: string;
+
+  pincode?: string;
+
+  shopDescription?: string;
+
+  shopImages?: ShopImage[];
+
+  services: ShopApplicationServices;
+
+  accountStatus?: AccountStatus;
+
+  rejectionReason?: string;
+
+  createdAt: string;
+
+  updatedAt: string;
 }
 
 
