@@ -140,6 +140,11 @@ export function AuthPage({
             ? "Complete your shop registration to continue."
             : "Complete your profile to continue.",
         });
+        toast.success("Account created", {
+          description: isShop
+            ? "Complete your shop registration to continue."
+            : "Complete your profile to continue.",
+        });
 
         if (isShop) {
           navigate({

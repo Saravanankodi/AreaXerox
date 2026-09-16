@@ -1,3 +1,5 @@
+"use client";
+
 import {
   createContext,
   useCallback,
@@ -28,6 +30,14 @@ import {
   updateOrderStatusInFirestore,
   listenToAllOrders,
 } from "@/lib/firestore/orders";
+import { useAuth } from "@/lib/auth";
+import { collectBalanceInDb } from "@/services/order.service";
+import {
+  saveUserAddress,
+  deleteUserAddress,
+  updateUserProfile,
+  addUserTicket,
+} from "@/services/user.service";
 
 interface AppState {
   shops: Shop[];
@@ -48,7 +58,7 @@ const initialState: AppState = {
   addresses: seedAddresses,
   profile: seedProfile,
   tickets: [],
-  activeShopId: seedShops[0]!.id,
+  activeShopId: "",
   pendingDocs: [],
   uploadedFileNames: [],
   orderDraft: null,
@@ -58,6 +68,7 @@ const initialState: AppState = {
 interface StoreValue extends AppState {
   hydrated: boolean;
   activeShop: Shop;
+  setActiveShopId: (id: string) => void;
   updateShop: (shopId: string, updater: (shop: Shop) => Shop) => void;
   placeOrder: (order: Order) => Promise<Order>;
   advanceOrder: (orderId: string, status: OrderStatus) => Promise<void>;
@@ -83,6 +94,7 @@ interface StoreValue extends AppState {
 const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
+  const { session } = useAuth();
   const [state, setState] = useState<AppState>(initialState);
   const [pendingUploadFiles, setPendingUploadFilesState] = useState<File[]>([]);
   const pendingUploadFilesRef = useRef<File[]>([]);
@@ -156,28 +168,53 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           : o,
       ),
     }));
+    collectBalanceInDb(orderId, via).catch(console.error);
   }, []);
 
-  const saveAddress = useCallback((address: Address) => {
-    setState((s) => ({
-      ...s,
-      addresses: s.addresses.some((a) => a.id === address.id)
-        ? s.addresses.map((a) => (a.id === address.id ? address : a))
-        : [...s.addresses, address],
-    }));
-  }, []);
+  const saveAddress = useCallback(
+    (address: Address) => {
+      setState((s) => ({
+        ...s,
+        addresses: s.addresses.some((a) => a.id === address.id)
+          ? s.addresses.map((a) => (a.id === address.id ? address : a))
+          : [...s.addresses, address],
+      }));
+      if (session?.accountId) {
+        saveUserAddress(session.accountId, address).catch(console.error);
+      }
+    },
+    [session],
+  );
 
-  const deleteAddress = useCallback((id: string) => {
-    setState((s) => ({ ...s, addresses: s.addresses.filter((a) => a.id !== id) }));
-  }, []);
+  const deleteAddress = useCallback(
+    (id: string) => {
+      setState((s) => ({ ...s, addresses: s.addresses.filter((a) => a.id !== id) }));
+      if (session?.accountId) {
+        deleteUserAddress(session.accountId, id).catch(console.error);
+      }
+    },
+    [session],
+  );
 
-  const updateProfile = useCallback((profile: CustomerProfile) => {
-    setState((s) => ({ ...s, profile }));
-  }, []);
+  const updateProfile = useCallback(
+    (profile: CustomerProfile) => {
+      setState((s) => ({ ...s, profile }));
+      if (session?.accountId) {
+        updateUserProfile(session.accountId, profile).catch(console.error);
+      }
+    },
+    [session],
+  );
 
-  const addTicket = useCallback((ticket: SupportTicket) => {
-    setState((s) => ({ ...s, tickets: [ticket, ...s.tickets] }));
-  }, []);
+  const addTicket = useCallback(
+    (ticket: SupportTicket) => {
+      setState((s) => ({ ...s, tickets: [ticket, ...s.tickets] }));
+      if (session?.accountId) {
+        addUserTicket(session.accountId, ticket).catch(console.error);
+      }
+    },
+    [session],
+  );
 
   const setPendingDocs = useCallback((docs: DocumentFile[]) => {
     setState((s) => ({ ...s, pendingDocs: docs }));
@@ -234,11 +271,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [state.shopkeeperProfiles],
   );
 
+  const setActiveShopId = useCallback((id: string) => {
+    setState((s) => ({ ...s, activeShopId: id }));
+  }, []);
+
+  const activeShop = useMemo<Shop>(
+    () =>
+      state.shops.find((shop) => shop.id === state.activeShopId) ??
+      state.shops[0] ??
+      {
+        id: "",
+        name: "",
+        ownerName: "",
+        phone: "",
+        email: "",
+        address: "",
+        rating: 0,
+        prepMinutes: 0,
+        pickup: false,
+        paperTypes: [],
+        printTypes: { bw: true, color: false },
+        printSides: { single: true, double: false },
+        orientation: { portrait: true, landscape: false },
+        binding: [],
+        additional: [],
+        delivery: { enabled: false, fee: 0, freeAbove: null, etaMinutes: "", areas: [] },
+        payments: { full: true, advance: false, cashPickup: false, cashDelivery: false, advancePercent: 50 },
+      },
+    [state.shops, state.activeShopId],
+  );
+
   const value = useMemo<StoreValue>(
     () => ({
       ...state,
       hydrated,
-      activeShop: state.shops.find((s) => s.id === state.activeShopId) ?? state.shops[0]!,
+      activeShop,
+      setActiveShopId,
       updateShop,
       placeOrder,
       advanceOrder,
@@ -263,6 +331,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [
       state,
       hydrated,
+      activeShop,
+      setActiveShopId,
       updateShop,
       placeOrder,
       advanceOrder,
@@ -295,7 +365,7 @@ export function useStore() {
   return ctx;
 }
 
-export function newOrderId(orders: Order[]) {
+export function newOrderId(orders: Order[] = []) {
   const nums = orders
     .map((o) => parseInt(o.id.replace("OMX-", ""), 10))
     .filter((n) => !Number.isNaN(n));

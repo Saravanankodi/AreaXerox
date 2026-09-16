@@ -548,7 +548,7 @@ function DocumentPreviewDialog({
     <Dialog open={!!document} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto p-4 sm:p-6">
         <DialogHeader>
-          <DialogTitle className="pr-8 break-words">
+          <DialogTitle className="pr-8 wrap-break-word">
             {document?.name ?? "Document preview"}
           </DialogTitle>
           <DialogDescription>
@@ -657,6 +657,7 @@ function OrderPage() {
   const navigate = useNavigate();
   const {
     shops,
+    activeShop,
     orders,
     addresses,
     profile,
@@ -681,7 +682,7 @@ function OrderPage() {
   const [docs, setDocs] = useState<DocumentFile[]>(pendingDocs);
   const [uploadedFiles, setUploadedFiles] = useState<Record<string, File>>({});
   const [config, setConfig] = useState<PrintConfig>(defaultConfig);
-  const [shopId, setShopId] = useState<string>(shops[0]!.id);
+  const [shopId, setShopId] = useState<string>(shops[0]?.id ?? activeShop.id);
   const [fulfillment, setFulfillment] = useState<Fulfillment>("pickup");
   const [addressId, setAddressId] = useState<string | null>(addresses[0]?.id ?? null);
   const [newAddress, setNewAddress] = useState(false);
@@ -742,8 +743,8 @@ function OrderPage() {
     lowestPrice: false,
   });
   const shop = useMemo<Shop>(
-    () => shops.find((s) => s.id === shopId) ?? shops[0]!,
-    [shops, shopId],
+    () => shops.find((s) => s.id === shopId) ?? shops[0] ?? activeShop,
+    [shops, shopId, activeShop],
   );
   const price = useMemo(
     () => calculateOrderPrice(shop, docs, config, fulfillment),
@@ -901,6 +902,7 @@ function OrderPage() {
     }
 
     // Detect pages and upload to Cloudinary in parallel.
+    let uploadFailures = 0;
     await Promise.all(
       pendingDocs.map(async ({ file, document }) => {
         try {
@@ -919,7 +921,9 @@ function OrderPage() {
                 : doc,
             ),
           );
-        } catch {
+        } catch (error) {
+          uploadFailures += 1;
+          console.error(`Upload failed for "${document.name}"`, error);
           setDocs((current) =>
             current.map((doc) =>
               doc.id === document.id
@@ -930,6 +934,14 @@ function OrderPage() {
         }
       }),
     );
+
+    if (uploadFailures > 0) {
+      toast.error(`${uploadFailures} upload${uploadFailures > 1 ? "s" : ""} failed`, {
+        description:
+          "Cloudinary upload failed. Check your internet connection and that the upload preset is configured.",
+      });
+      return;
+    }
 
     // Show final toast after all detections complete.
     const needsReview = pendingDocs.filter((item) => !item.document.pageCountDetected).length;

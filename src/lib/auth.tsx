@@ -246,7 +246,6 @@ export function AuthProvider({
     return unsubscribe;
   }, []);
 
-
   /* =======================================================
    * SET SESSION
    *

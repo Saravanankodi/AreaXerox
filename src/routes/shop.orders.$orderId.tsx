@@ -60,9 +60,20 @@ function ShopOrderDetail() {
   const currentIndex = flow.indexOf(order.status);
   const futureActions = flow.slice(currentIndex + 1);
 
+  function isFileUsable(doc: DocumentFile) {
+    // Blob URLs are session-local (only the machine that uploaded can open them).
+    return !!getCachedFile(doc.id) || (!!doc.cloudinary?.url && !doc.cloudinary.url.startsWith("blob:"));
+  }
+
   function openPreview(doc: DocumentFile) {
     if (doc.cloudinary?.url) {
-      window.open(doc.cloudinary.url, "_blank");
+      if (isFileUsable(doc)) {
+        window.open(doc.cloudinary.url, "_blank");
+        return;
+      }
+      toast.error("File not available", {
+        description: "This document was uploaded into the customer's browser only.",
+      });
       return;
     }
     setPreviewFile(getCachedFile(doc.id));
@@ -71,8 +82,14 @@ function ShopOrderDetail() {
 
   function downloadFile(doc: DocumentFile) {
     if (doc.cloudinary?.url) {
-      window.open(doc.cloudinary.url, "_blank");
-      toast.success(`Opening ${doc.name}`);
+      if (isFileUsable(doc)) {
+        window.open(doc.cloudinary.url, "_blank");
+        toast.success(`Opening ${doc.name}`);
+        return;
+      }
+      toast.error("File not available", {
+        description: "This document was uploaded into the customer's browser only.",
+      });
       return;
     }
     const file = getCachedFile(doc.id);
@@ -129,8 +146,7 @@ function ShopOrderDetail() {
             <h3 className="text-sm font-semibold">Documents</h3>
             <div className="mt-3 space-y-2">
               {order.documents.map((d) => {
-                const file = getCachedFile(d.id);
-                const hasFile = !!file || !!d.cloudinary?.url;
+                const hasFile = isFileUsable(d);
                 return (
                   <div
                     key={d.id}

@@ -10,6 +10,8 @@ import { getShopById, updateShopInFirestore } from "@/lib/firestore/shops";
 import type { Shop } from "@/types";
 import { cn } from "@/lib/utils";
 
+import { approveApplication, rejectApplication } from "@/services/admin.service";
+
 export const Route = createFileRoute("/admin/applications/$applicationId")({
   component: AdminApplicationDetail,
 });
@@ -61,7 +63,7 @@ function AdminApplicationDetail() {
     );
   }
 
-  const approve = () => {
+  const approve = async () => {
     if (processing) return;
     setProcessing(true);
     updateShopInFirestore(application.id, { accountStatus: "active" });
@@ -76,7 +78,7 @@ function AdminApplicationDetail() {
     setProcessing(false);
   };
 
-  const reject = (event: FormEvent) => {
+  const reject = async (event: FormEvent) => {
     event.preventDefault();
     if (processing) return;
     if (!rejectReason.trim()) {

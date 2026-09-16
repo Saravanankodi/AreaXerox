@@ -32,6 +32,7 @@ import type {
   ShopImage,
   ShopApplicationServices,
 } from "@/types";
+import { uploadFile } from "@/lib/firebase/storage";
 
 export const Route = createFileRoute("/auth/shop/register")({
   component: ShopRegisterPage,

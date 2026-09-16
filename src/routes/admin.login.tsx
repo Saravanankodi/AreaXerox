@@ -1,11 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@/lib/navigation";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { ShieldCheck, Printer } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
+import { signInUser, getAccountByUid, registerNewAccount } from "@/services/auth.service";
 
 export const Route = createFileRoute("/admin/login")({
   component: AdminLoginPage,
@@ -13,7 +14,7 @@ export const Route = createFileRoute("/admin/login")({
 
 function AdminLoginPage() {
   const navigate = useNavigate();
-  const { signIn, getAllAccounts, createAccount } = useAuth();
+  const { signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -23,40 +24,58 @@ function AdminLoginPage() {
     setLoading(true);
 
     if (!email.includes("@") || password.length < 8) {
-      toast.error("Enter a valid email and password.");
+      toast.error("Enter a valid email and password (min 8 chars).");
       setLoading(false);
       return;
     }
 
     try {
-      const accounts = await getAllAccounts();
-      let adminAccount = accounts.find(
-        (a) => a.email.toLowerCase() === email.toLowerCase() && a.role === "admin",
-      );
+      // Try to sign in with Firebase Auth
+      const user = await signInUser(email, password);
+      const accountData = await getAccountByUid(user.uid);
 
-      if (!adminAccount) {
-        const result = await createAccount(email, password, "admin", "Admin", "");
+      if (!accountData || accountData.role !== "admin") {
+        // No admin account exists yet — register one
+        const result = await registerNewAccount(email, password, "admin", "Admin", "");
         if (typeof result === "string") {
           toast.error(result);
           setLoading(false);
           return;
         }
-        adminAccount = result;
+
+        // Fetch the newly created account
+        const newAccount = await getAccountByUid(result.user.uid);
+        if (!newAccount) {
+          toast.error("Failed to create admin account.");
+          setLoading(false);
+          return;
+        }
+
+        signIn({
+          accountId: newAccount.id,
+          role: "admin",
+          email: newAccount.email,
+          name: newAccount.name || "Admin",
+          phone: newAccount.phone || "",
+          registrationStatus: "complete",
+          accountStatus: "active",
+        });
+      } else {
+        signIn({
+          accountId: accountData.id,
+          role: accountData.role,
+          email: accountData.email,
+          name: accountData.name || "Admin",
+          phone: accountData.phone || "",
+          registrationStatus: accountData.registrationStatus,
+          accountStatus: accountData.accountStatus,
+        });
       }
 
-      signIn({
-        accountId: adminAccount.id,
-        role: "admin",
-        email: adminAccount.email,
-        name: adminAccount.name || "Admin",
-        phone: adminAccount.phone || "",
-        registrationStatus: "complete",
-        accountStatus: "active",
-      });
       toast.success("Welcome, admin");
       navigate({ to: "/admin" });
-    } catch (err: any) {
-      toast.error(err.message || "Admin login failed.");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Admin login failed.");
     } finally {
       setLoading(false);
     }
@@ -100,10 +119,6 @@ function AdminLoginPage() {
             {loading ? "Signing in..." : "Sign in"}
           </Button>
         </form>
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          First time? Enter any email and password (min 8 chars) — an admin account will be created
-          automatically.
-        </p>
         <p className="mt-4 text-center text-sm text-muted-foreground">
           <Link to="/" className="font-semibold text-primary hover:underline">
             Back to home

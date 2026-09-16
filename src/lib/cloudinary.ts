@@ -91,15 +91,12 @@ export async function uploadFileToCloudinary(
             format: data.format || extension || "bin",
             size: data.bytes || file.size,
         };
-    } catch (err: any) {
-        console.warn("Cloudinary upload failed or unconfigured, returning mock metadata for fallback:", err.message);
-        // Fallback response for dev/demo environment if Cloudinary preset is unconfigured
-        return {
-            url: URL.createObjectURL(file),
-            publicId: `dev_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            originalName: file.name,
-            format: extension || "bin",
-            size: file.size,
-        };
+    } catch (err: unknown) {
+        const detail = err instanceof Error ? err.message : String(err);
+        console.error("Cloudinary upload failed:", detail);
+        throw new Error(
+            `Cloudinary upload failed for "${file.name}"${detail ? `: ${detail}` : ""}. ` +
+            "Make sure the upload preset \"xeroxmate_uploads\" exists in your Cloudinary dashboard and is set to Unsigned.",
+        );
     }
 }
