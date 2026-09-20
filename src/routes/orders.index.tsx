@@ -1,13 +1,23 @@
 import { createFileRoute, Link } from "@/lib/navigation";
 import { useState } from "react";
 import { FileText, Package } from "lucide-react";
+import { toast } from "sonner";
 import { CustomerShell, PageHeader } from "@/components/layout/CustomerShell";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { PaymentBadge, StatusBadge } from "@/components/StatusBadge";
 import { useStore } from "@/lib/store";
 import { inr } from "@/lib/pricing";
 import { fulfillmentLabel } from "@/lib/labels";
 import { cn } from "@/lib/utils";
+import type { Order } from "@/types";
 
 export const Route = createFileRoute("/orders/")({
   head: () => ({
@@ -26,14 +36,28 @@ export const Route = createFileRoute("/orders/")({
 
 const TABS = ["Active", "Completed", "All"] as const;
 
+const CANCELLABLE_STATUSES = new Set(["NEW", "ACCEPTED"]);
+
 function OrdersPage() {
-  const { orders } = useStore();
+  const { orders, cancelOrder } = useStore();
   const [tab, setTab] = useState<(typeof TABS)[number]>("Active");
+  const [cancelTarget, setCancelTarget] = useState<Order | null>(null);
 
   const done = ["COMPLETED", "DELIVERED", "REJECTED"];
   const list = orders.filter((o) =>
     tab === "All" ? true : tab === "Completed" ? done.includes(o.status) : !done.includes(o.status),
   );
+
+  const handleCancel = () => {
+    if (!cancelTarget) return;
+    const ok = cancelOrder(cancelTarget.id);
+    if (ok) {
+      toast.success("Order cancelled", { description: `${cancelTarget.id} has been cancelled.` });
+    } else {
+      toast.error("Could not cancel this order. It may have already been processed.");
+    }
+    setCancelTarget(null);
+  };
 
   return (
     <CustomerShell>
@@ -96,8 +120,17 @@ function OrdersPage() {
                 </span>
                 <div className="flex items-center gap-3">
                   <span className="text-base font-bold">{inr(o.price.total)}</span>
+                  {CANCELLABLE_STATUSES.has(o.status) && (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => setCancelTarget(o)}
+                    >
+                      Cancel
+                    </Button>
+                  )}
                   <Link to="/orders/$orderId" params={{ orderId: o.id }}>
-                    <Button size="sm">Track Order</Button>
+                    <Button size="sm">Track</Button>
                   </Link>
                 </div>
               </div>
@@ -117,6 +150,25 @@ function OrdersPage() {
           )}
         </div>
       </div>
+
+      <Dialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Cancel order?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to cancel order {cancelTarget?.id}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 flex flex-row gap-3 sm:flex-row">
+            <Button variant="outline" className="flex-1" onClick={() => setCancelTarget(null)}>
+              Keep Order
+            </Button>
+            <Button variant="destructive" className="flex-1" onClick={handleCancel}>
+              Cancel Order
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </CustomerShell>
   );
 }

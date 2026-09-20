@@ -115,8 +115,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: email.trim().toLowerCase(),
         passwordHash: hashPassword(password),
         role,
-        registrationStatus: "incomplete",
-        accountStatus: role === "shopkeeper" ? "pending" : "active",
+        registrationStatus: role === "customer" ? "incomplete" : "complete",
+        accountStatus: "active",
         createdAt: now,
         updatedAt: now,
       };

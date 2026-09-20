@@ -18,16 +18,22 @@ function ShopRejectedPage() {
       navigate({ to: "/auth/shop/login" });
       return;
     }
-    if (session.accountStatus === "active") {
+    if (session.accountStatus === "active" || !session.accountStatus) {
       navigate({ to: "/shop" });
       return;
     }
     if (session.accountStatus === "pending") {
-      navigate({ to: "/shop/pending" });
+      navigate({ to: "/shop" });
     }
   }, [session, navigate]);
 
-  if (!session || session.role !== "shopkeeper" || session.accountStatus === "active" || session.accountStatus === "pending") {
+  if (
+    !session ||
+    session.role !== "shopkeeper" ||
+    session.accountStatus === "active" ||
+    !session.accountStatus ||
+    session.accountStatus === "pending"
+  ) {
     return null;
   }
 
@@ -50,14 +56,14 @@ function ShopRejectedPage() {
           </div>
         )}
         <p className="mt-4 text-sm text-muted-foreground">
-          You can update your registration and resubmit.
+          You can update your shop profile and resubmit from the dashboard.
         </p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link
-            to="/auth/shop/register"
+            to="/shop"
             className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
-            Update registration
+            Go to Dashboard
           </Link>
           <button
             onClick={() => {

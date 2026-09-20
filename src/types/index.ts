@@ -5,6 +5,7 @@ export type Fulfillment = "pickup" | "delivery";
 
 export type PaymentMethod = "full" | "advance" | "cash_pickup" | "cash_delivery";
 export type PaymentStatus = "unpaid" | "partial" | "paid" | "failed" | "refunded";
+export type ShopPaymentMethod = "upi" | "bank_transfer";
 
 export type OrderStatus =
   | "NEW"
@@ -51,7 +52,7 @@ export interface ShopApplication {
   city: string;
   state: string;
   pincode: string;
-  whatsappNumber: string;
+  whatsappNumber?: string;
   shopDescription: string;
   shopImages: ShopImage[];
   services: ShopApplicationServices;
@@ -124,10 +125,18 @@ export interface Shop {
   id: string;
   name: string;
   ownerName: string;
+  ownerPhone: string;
   phone: string;
-  whatsappNumber?: string;
   email: string;
+  /** Legacy single-line address — kept for backward compatibility; prefer structured fields. */
   address: string;
+  /** Structured address fields. */
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
   hours: string;
   workingDaysFrom?: string;
   workingDaysTo?: string;
@@ -145,6 +154,30 @@ export interface Shop {
   additional: ServiceOption[];
   delivery: DeliverySettings;
   payments: PaymentSettings;
+  /** Account approval status. Undefined or "active" = visible to customers. */
+  accountStatus?: AccountStatus;
+  rejectionReason?: string;
+  /** Link to the shopkeeper account that owns this shop. */
+  ownerAccountId?: string;
+  /** Shop operating state — manually controlled via Check In / Check Out. */
+  isOpen?: boolean;
+  lastCheckInAt?: string;
+  lastCheckOutAt?: string;
+  /** Shopkeeper payout method. */
+  shopPaymentMethod?: ShopPaymentMethod;
+  /** UPI ID when shopPaymentMethod is "upi". */
+  upiId?: string;
+  /** Whether the UPI ID has been verified. */
+  upiVerified?: boolean;
+  /** Bank details when shopPaymentMethod is "bank_transfer". */
+  bankName?: string;
+  bankAccountNumber?: string;
+  bankIfsc?: string;
+  bankBranch?: string;
+  /** Shop images stored as data URLs for persistence. */
+  frontImage?: string;
+  interiorImage?: string;
+
 }
 
 export interface DocumentFile {
@@ -157,6 +190,8 @@ export interface DocumentFile {
   detectingPages?: boolean;
   printConfig?: PrintConfig;
   instructions?: string;
+  /** Optional custom page range, e.g. "1-5, 8, 10-12". */
+  pageRange?: string;
 }
 
 export interface Address {
@@ -240,11 +275,42 @@ export interface SupportTicket {
   status: "open" | "resolved";
 }
 
+export type CustomerPayoutMethod = "upi" | "bank_transfer";
+
 export interface CustomerProfile {
   name: string;
   email: string;
   phone: string;
   alternatephone?: string;
+  /** Primary address — structured fields. */
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
+  /** Customer's preferred payout method for refunds / balance returns. */
+  payoutMethod?: CustomerPayoutMethod;
+  /** UPI ID when payoutMethod is "upi". */
+  upiId?: string;
+  /** Bank details when payoutMethod is "bank_transfer". */
+  bankName?: string;
+  bankAccountNumber?: string;
+  bankIfsc?: string;
+  bankBranch?: string;
+  /** Whether the UPI ID has been verified. */
+  upiVerified?: boolean;
+}
+
+export interface Review {
+  id: string;
+  orderId: string;
+  shopId: string;
+  customerId: string;
+  customerName: string;
+  rating: number;
+  description: string;
+  createdAt: string;
 }
 
 export interface OrderDraft {
@@ -256,4 +322,33 @@ export interface OrderDraft {
   addressId: string | null;
   method: PaymentMethod;
   notes: string;
+}
+
+export type NotificationType =
+  | "order_placed"
+  | "order_accepted"
+  | "order_rejected"
+  | "order_status_changed"
+  | "printing_started"
+  | "printing_completed"
+  | "ready_pickup"
+  | "out_for_delivery"
+  | "delivered"
+  | "payment_update"
+  | "review_received"
+  | "support_update";
+
+export type NotificationRecipientRole = "customer" | "shopkeeper";
+
+export interface Notification {
+  id: string;
+  recipientId: string;
+  recipientRole: NotificationRecipientRole;
+  type: NotificationType;
+  title: string;
+  message: string;
+  relatedEntityId?: string;
+  entityType?: "order" | "review" | "support";
+  read: boolean;
+  createdAt: string;
 }

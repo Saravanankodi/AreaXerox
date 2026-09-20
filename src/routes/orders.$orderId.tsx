@@ -1,12 +1,15 @@
 import { createFileRoute, Link } from "@/lib/navigation";
-import { ArrowLeft, Clock, Download, Eye, FileText, MapPin, Phone, Store } from "lucide-react";
+import { ArrowLeft, Clock, Download, FileText, MapPin, Phone, Store } from "lucide-react";
+import { toast } from "sonner";
 import { CustomerShell } from "@/components/layout/CustomerShell";
 import { Button } from "@/components/ui/button";
 import { OrderTimeline } from "@/components/OrderTimeline";
+import { ReviewCard } from "@/components/ReviewCard";
 import { PaymentBadge, StatusBadge } from "@/components/StatusBadge";
 import { useStore } from "@/lib/store";
 import { calculateDocumentPrices, inr } from "@/lib/pricing";
 import { customerStatusCopy, fulfillmentLabel } from "@/lib/labels";
+import type { DocumentFile } from "@/types";
 
 export const Route = createFileRoute("/orders/$orderId")({
   head: () => ({
@@ -26,7 +29,7 @@ export const Route = createFileRoute("/orders/$orderId")({
 
 function OrderDetail() {
   const { orderId } = Route.useParams();
-  const { orders, shops, hydrated } = useStore();
+  const { orders, shops, hydrated, getCachedFile } = useStore();
   const order = orders.find((o) => o.id === orderId);
 
   if (!order) {
@@ -48,6 +51,34 @@ function OrderDetail() {
 
   const shop = shops.find((s) => s.id === order.shopId);
   const docPrices = shop ? calculateDocumentPrices(shop, order.documents, order.config) : [];
+
+  function openDocument(doc: DocumentFile) {
+    const file = getCachedFile(doc.id);
+    if (!file) {
+      toast.error("Document file is not available in this session.");
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    window.open(url, "_blank", "noopener,noreferrer");
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
+  function downloadDocument(doc: DocumentFile) {
+    const file = getCachedFile(doc.id);
+    if (!file) {
+      toast.error("Document file is not available in this session.");
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = doc.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success(`Downloading ${doc.name}`);
+  }
 
   return (
     <CustomerShell>
@@ -95,19 +126,35 @@ function OrderDetail() {
                 {order.documents.map((d) => (
                   <div
                     key={d.id}
-                    className="flex items-center gap-3 rounded-lg border border-border px-4 py-3"
+                    role="button"
+                    tabIndex={0}
+                    className="flex cursor-pointer items-center gap-3 rounded-lg border border-border px-4 py-3 transition-colors hover:bg-secondary/50"
+                    onClick={() => openDocument(d)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        openDocument(d);
+                      }
+                    }}
                   >
-                    <FileText className="h-5 w-5 text-primary" />
-                    <div>
-                      <p className="text-sm font-medium">{d.name}</p>
+                    <FileText className="h-5 w-5 shrink-0 text-primary" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{d.name}</p>
                       <p className="text-xs text-muted-foreground">
                         {d.pages} pages · {d.sizeMb} MB
                       </p>
                     </div>
-                    <div className="ml-auto flex items-center gap-2">
-                      <button><Eye className="h-5 w-5" /></button>
-                      <button><Download className="h-5 w-5" /></button>
-                    </div>
+                    <button
+                      type="button"
+                      aria-label={`Download ${d.name}`}
+                      className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        downloadDocument(d);
+                      }}
+                    >
+                      <Download className="h-5 w-5" />
+                    </button>
                   </div>
                 ))}
               </div>
@@ -153,6 +200,7 @@ function OrderDetail() {
                     ],
                     ["Delivery Option", fulfillmentLabel[order.fulfillment]],
                   ];
+                  if (doc.pageRange) rows.push(["Range", doc.pageRange]);
                   return (
                     <div
                       key={doc.id}
@@ -230,6 +278,8 @@ function OrderDetail() {
                 );
               })()}
             </div>
+
+            {shop && <ReviewCard order={order} />}
 
             {shop && (
               <div className="card-surface p-5">

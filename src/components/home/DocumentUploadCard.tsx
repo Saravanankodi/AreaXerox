@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { CheckCircle2, FileText, LoaderCircle, Trash2, Upload, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -14,45 +14,42 @@ export function DocumentUploadCard({
   multiple = false,
   onFilesSelected,
   onFilesRemoved,
-  initialFileNames,
+  fileNames,
+  uploadingNames,
   hydrated = true,
   className,
 }: {
   multiple?: boolean | undefined;
   onFilesSelected?: ((files: File[]) => void | Promise<void>) | undefined;
   onFilesRemoved?: (() => void) | undefined;
-  initialFileNames?: string[] | undefined;
+  fileNames?: string[] | undefined;
+  uploadingNames?: string[] | undefined;
   hydrated?: boolean | undefined;
   className?: string | undefined;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<UploadState>("idle");
-  const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState("");
-  const hasRestoredRef = useRef(false);
 
-  useEffect(() => {
-    if (hasRestoredRef.current) return;
-    if (initialFileNames && initialFileNames.length > 0) {
-      hasRestoredRef.current = true;
-      setFiles(
-        initialFileNames.map((name, i) => new File([], name, { lastModified: Date.now() + i })),
-      );
-      setState("success");
-    }
-  }, [initialFileNames]);
-  const clearUploadedFiles = () => {
+  const displayNames = uploadingNames?.length
+    ? uploadingNames
+    : fileNames ?? [];
+  const hasFiles = displayNames.length > 0;
+
+  const clearAll = () => {
     setState("idle");
-    setFiles([]);
     setError("");
     onFilesRemoved?.();
   };
+
   const retry = () => {
     setState("idle");
     setError("");
     browse();
   };
+
   const browse = () => inputRef.current?.click();
+
   const acceptFiles = async (incoming: FileList | File[]) => {
     const selected = Array.from(incoming);
     const unsupported = selected.find((file) => !isSupportedUpload(file));
@@ -63,12 +60,22 @@ export function DocumentUploadCard({
       return;
     }
     const accepted = multiple ? selected : selected.slice(0, 1);
-    setFiles((current) => [...current, ...accepted]);
     setState("uploading");
     await new Promise<void>((resolve) => window.setTimeout(resolve, 420));
     await onFilesSelected?.(accepted);
     setState("success");
   };
+
+  const currentDisplayState: UploadState = state === "uploading"
+    ? "uploading"
+    : state === "error"
+      ? "error"
+      : hasFiles
+        ? "success"
+        : state === "dragging"
+          ? "dragging"
+          : "idle";
+
   return (
     <section
       aria-label="Document upload"
@@ -106,7 +113,7 @@ export function DocumentUploadCard({
             }}
             onDragEnter={(event) => {
               event.preventDefault();
-              if (state !== "uploading") setState("dragging");
+              if (currentDisplayState !== "uploading") setState("dragging");
             }}
             onDragOver={(event) => event.preventDefault()}
             onDragLeave={() => {
@@ -118,20 +125,20 @@ export function DocumentUploadCard({
             }}
             className={cn(
               "group rounded-2xl border-2 border-dashed p-6 text-center outline-none transition-all sm:p-8",
-              state === "dragging"
+              currentDisplayState === "dragging"
                 ? "border-primary bg-primary-light scale-[1.01]"
                 : "border-primary bg-primary-light/60 shadow-raised",
-              state === "error" && "border-destructive bg-destructive/5",
-              state === "success" && "border-success/50 bg-success-light/60",
+              currentDisplayState === "error" && "border-destructive bg-destructive/5",
+              currentDisplayState === "success" && "border-success/50 bg-success-light/60",
             )}
           >
-            {(state === "idle" || state === "dragging") && (
+            {currentDisplayState === "idle" || currentDisplayState === "dragging" ? (
               <>
                 <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-light text-primary transition-transform duration-200 group-hover:-translate-y-1">
                   <Upload className="h-7 w-7" />
                 </span>
                 <h2 className="mt-5 text-lg font-bold">
-                  {state === "dragging" ? "Drop your document here" : "Upload your document"}
+                  {currentDisplayState === "dragging" ? "Drop your document here" : "Upload your document"}
                 </h2>
                 <p className="mx-auto mt-2 max-w-xs text-sm leading-6 text-muted-foreground">
                   Drag & drop {multiple ? "files" : "a file"} here or browse from your device.
@@ -143,36 +150,34 @@ export function DocumentUploadCard({
                   Browse Files
                 </Button>
               </>
-            )}
-            {state === "uploading" && (
+            ) : currentDisplayState === "uploading" ? (
               <>
                 <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-light text-primary">
                   <LoaderCircle className="h-7 w-7 animate-spin" />
                 </span>
                 <h2 className="mt-5 text-lg font-bold">
-                  Preparing your {files.length > 1 ? "files" : "file"}...
+                  Preparing your {displayNames.length > 1 ? "files" : "file"}...
                 </h2>
                 <p className="mt-2 truncate text-sm text-muted-foreground">
-                  {files.map((file) => file.name).join(", ")}
+                  {displayNames.join(", ")}
                 </p>
                 <div className="mx-auto mt-5 h-2 max-w-xs overflow-hidden rounded-full bg-border">
                   <span className="home-upload-progress block h-full rounded-full bg-primary" />
                 </div>
               </>
-            )}
-            {state === "success" && (
+            ) : currentDisplayState === "success" ? (
               <>
                 <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-success-light text-success">
                   <CheckCircle2 className="h-7 w-7" />
                 </span>
                 <h2 className="mt-5 text-lg font-bold">Upload complete</h2>
                 <div className="mx-auto mt-2 max-w-sm space-y-1">
-                  {files.map((file) => (
+                  {displayNames.map((name) => (
                     <p
-                      key={`${file.name}-${file.lastModified}`}
+                      key={name}
                       className="truncate text-sm text-muted-foreground"
                     >
-                      {file.name}
+                      {name}
                     </p>
                   ))}
                 </div>
@@ -183,7 +188,7 @@ export function DocumentUploadCard({
                     variant="outline"
                     onClick={(event) => {
                       event.stopPropagation();
-                      clearUploadedFiles();
+                      clearAll();
                     }}
                   >
                     <Trash2 className="h-4 w-4" /> Remove
@@ -200,8 +205,7 @@ export function DocumentUploadCard({
                   </Button>
                 </div>
               </>
-            )}
-            {state === "error" && (
+            ) : (
               <>
                 <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
                   <XCircle className="h-7 w-7" />

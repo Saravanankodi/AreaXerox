@@ -31,7 +31,7 @@ export function StatusBadge({ status, className }: { status: OrderStatus; classN
 
 const payTone: Record<PaymentStatus, string> = {
   unpaid: "bg-destructive/10 text-destructive border-destructive/25",
-  partial: "bg-warning-light text-warning-foreground border-warning/40",
+  partial: "bg-warning-light text-warning border-warning/40",
   paid: "bg-success-light text-success border-success/30",
   failed: "bg-destructive/10 text-destructive border-destructive/25",
   refunded: "bg-muted text-muted-foreground border-border",
