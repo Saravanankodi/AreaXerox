@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { ThemeSelector } from "@/components/ThemeSelector";
+import { NotificationBell } from "@/components/NotificationBell";
 
 const nav = [
   { to: "/", label: "Home", icon: Home },
@@ -25,13 +26,14 @@ export function CustomerShell({
   const navigate = useNavigate();
   const { session, signOut } = useAuth();
 
-  // Customer access control: redirect incomplete registration
+  // Customer access control: redirect incomplete registration back to register page.
+  // Since the register page now auto-completes and redirects to /, this rarely triggers.
   useEffect(() => {
     if (!session || session.role !== "customer") return;
-    if (session.registrationStatus === "incomplete") {
+    if (session.registrationStatus === "incomplete" && pathname !== "/auth/customer/register") {
       navigate({ to: "/auth/customer/register", replace: true });
     }
-  }, [session, navigate]);
+  }, [session, navigate, pathname]);
 
   const isActive = (to: string) =>
     to === "/" ? pathname === "/" : pathname === to || pathname.startsWith(to + "/");
@@ -96,6 +98,7 @@ export function CustomerShell({
           </nav>
 
           <div className="flex items-center gap-2">
+            <NotificationBell />
             <ThemeSelector compact />
             <Link
               to={session?.role === "shopkeeper" ? "/shop" : "/auth/shop/login"}

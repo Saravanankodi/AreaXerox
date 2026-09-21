@@ -11,28 +11,35 @@ export const Route = createFileRoute("/shop/rejected")({
 
 function ShopRejectedPage() {
   const navigate = useNavigate();
-  const { session, signOut } = useAuth();
+  const { session, signOut, ready } = useAuth();
   const [application, setApplication] = useState<Shop | undefined>();
 
   useEffect(() => {
+    if (!ready) return;
     if (!session || session.role !== "shopkeeper") {
       navigate({ to: "/auth/shop/login" });
       return;
     }
-    if (session.accountStatus === "active") {
+    if (session.accountStatus === "active" || !session.accountStatus) {
       navigate({ to: "/shop" });
       return;
     }
     if (session.accountStatus === "pending") {
-      navigate({ to: "/shop/pending" });
-      return;
+      navigate({ to: "/shop" });
     }
     getShopByOwner(session.accountId)
       .then(setApplication)
       .catch(console.error);
-  }, [session, navigate]);
+  }, [session, navigate, ready]);
 
-  if (!session || session.role !== "shopkeeper" || session.accountStatus === "active" || session.accountStatus === "pending") {
+  if (
+    !ready ||
+    !session ||
+    session.role !== "shopkeeper" ||
+    session.accountStatus === "active" ||
+    !session.accountStatus ||
+    session.accountStatus === "pending"
+  ) {
     return null;
   }
 
@@ -53,14 +60,14 @@ function ShopRejectedPage() {
           </div>
         )}
         <p className="mt-4 text-sm text-muted-foreground">
-          You can update your registration and resubmit.
+          You can update your shop profile and resubmit from the dashboard.
         </p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link
-            to="/auth/shop/register"
+            to="/shop"
             className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
-            Update registration
+            Go to Dashboard
           </Link>
           <button
             onClick={() => {

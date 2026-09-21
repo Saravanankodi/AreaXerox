@@ -38,7 +38,11 @@ import { uploadFileToCloudinary } from "@/lib/cloudinary";
 import { calculateDocumentPrices, calculateOrderPrice, inr, paymentSplit } from "@/lib/pricing";
 import { detectPageCount } from "@/lib/document-pages";
 import { paymentMethodLabel } from "@/lib/labels";
+import { shopDisplayRating } from "@/lib/shop-rating";
+import { isShopVisibleToCustomers } from "@/lib/shop-status";
+import { createNotification } from "@/lib/notifications";
 import { ACCEPTED_UPLOAD_TYPES, isSupportedUpload } from "@/lib/upload-config";
+import { signInWithGoogle } from "@/lib/auth-google";
 import type {
   Address,
   DocumentFile,
@@ -73,7 +77,7 @@ const STEP_TITLES = [
   "Upload + specifications",
   "Select shop",
   "Pickup / delivery",
-  "Payment + preview",
+  "Payment + review",
 ];
 
 const defaultConfig: PrintConfig = {
@@ -165,7 +169,6 @@ function FilePrintOptions({
   onRemove: () => void;
 }) {
   const config = document.printConfig ?? fallback;
-  const pageLayout = config.pageLayout ?? 1;
   const papers = printedPaperCount(document.pages, config);
   const enabledPapers = shop.paperTypes.filter((paper) => paper.enabled);
   return (
@@ -220,7 +223,7 @@ function FilePrintOptions({
       </div>
       <div className="order-doc-card-details">
         <div className="order-doc-card-details-inner">
-          <div className="grid grid-cols-2 gap-3 p-4 min-[420px]:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 p-4 min-[420px]:grid-cols-2">
             <SelectControl
               label="Paper type"
               value={config.paperTypeId}
@@ -282,17 +285,6 @@ function FilePrintOptions({
               {shop.printSides.double && <option value="double">Front & back</option>}
             </SelectControl>
             <SelectControl
-              label="Page layout"
-              value={String(pageLayout)}
-              onChange={(value) =>
-                onChange((current) => ({ ...current, pageLayout: Number(value) as 1 | 2 | 4 }))
-              }
-            >
-              <option value="1">1 Page / Sheet</option>
-              <option value="2">2 Pages / Sheet</option>
-              <option value="4">4 Pages / Sheet</option>
-            </SelectControl>
-            <SelectControl
               label="Binding"
               value={config.bindingId ?? "none"}
               onChange={(value) =>
@@ -307,6 +299,20 @@ function FilePrintOptions({
                     {option.name} · {inr(option.price)}
                   </option>
                 ))}
+            </SelectControl>
+            <SelectControl
+              label="Page layout"
+              value={String(config.pageLayout ?? 1)}
+              onChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  pageLayout: Number(value) as 1 | 2 | 4,
+                }))
+              }
+            >
+              <option value="1">1 Page / Sheet</option>
+              <option value="2">2 Pages / Sheet</option>
+              <option value="4">4 Pages / Sheet</option>
             </SelectControl>
             <SelectControl
               label="Lamination / extras"
@@ -340,16 +346,30 @@ function FilePrintOptions({
               <option value="portrait">Portrait</option>
               <option value="landscape">Landscape</option>
             </SelectControl>
-            <div className="min-[420px]:col-span-2">
-              <Label className="text-xs font-semibold text-subtle">
-                SPECIAL INSTRUCTIONS (OPTIONAL)
-              </Label>
-              <Input
-                className="mt-1.5 h-9 text-xs"
-                placeholder="e.g. staple at top-left"
-                value={document.instructions ?? ""}
-                onChange={(event) => onInstructionsChange(event.target.value)}
-              />
+            {/* RANGE + SPECIAL INSTRUCTIONS — full width row */}
+            <div className="col-span-2 grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
+              <div>
+                <Label className="text-xs font-semibold text-subtle">RANGE</Label>
+                <Input
+                  className="mt-1.5 h-9 text-xs"
+                  placeholder="e.g. 1-5, 8, 10-12"
+                  value={document.pageRange ?? ""}
+                  onChange={(event) =>
+                    onChange((current) => ({ ...current, pageRange: event.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold text-subtle">
+                  SPECIAL INSTRUCTIONS (OPTIONAL)
+                </Label>
+                <Input
+                  className="mt-1.5 h-9 text-xs"
+                  placeholder="e.g. staple at top-left"
+                  value={document.instructions ?? ""}
+                  onChange={(event) => onInstructionsChange(event.target.value)}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -628,6 +648,10 @@ function shopOpenDays(shop: Shop): Set<string> {
 }
 
 function shopAvailability(shop: Shop, now = new Date()) {
+  // If the shopkeeper has explicitly checked in/out, use that state.
+  if (shop.isOpen !== undefined) {
+    return { open: shop.isOpen, label: shop.isOpen ? "Open" : "Closed" };
+  }
   if (!shop.openingTime || !shop.closingTime) return { open: true, label: "Open" };
   const todayName = DAY_NAMES[now.getDay()];
   const openDays = shopOpenDays(shop);
@@ -663,8 +687,6 @@ function OrderPage() {
     profile,
     placeOrder,
     saveAddress,
-    pendingDocs,
-    setPendingDocs,
     clearPendingDocs,
     pendingUploadFiles,
     consumePendingUploadFiles,
@@ -675,11 +697,14 @@ function OrderPage() {
     clearOrderDraft,
     hydrated,
     cacheFile,
+    removeCachedFile,
+    reviews,
+    addNotification,
   } = useStore();
-  const { session } = useAuth();
+  const { session, signIn, getAllAccounts, createAccount, updateAccount } = useAuth();
 
   const [step, setStep] = useState(0);
-  const [docs, setDocs] = useState<DocumentFile[]>(pendingDocs);
+  const [docs, setDocs] = useState<DocumentFile[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<Record<string, File>>({});
   const [config, setConfig] = useState<PrintConfig>(defaultConfig);
   const [shopId, setShopId] = useState<string>(shops[0]?.id ?? activeShop.id);
@@ -700,10 +725,12 @@ function OrderPage() {
   const [notes, setNotes] = useState("");
   const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(null);
   const [fulfillmentDialogOpen, setFulfillmentDialogOpen] = useState(false);
-  const [shopConfirmed, setShopConfirmed] = useState(true);
+  const [shopConfirmed, setShopConfirmed] = useState(false);
   const [mobileShopSummaryOpen, setMobileShopSummaryOpen] = useState(false);
   const [submittingOrder, setSubmittingOrder] = useState(false);
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const [uploadingNames, setUploadingNames] = useState<string[]>([]);
   const addMoreFilesRef = useRef<HTMLInputElement>(null);
   const draftRestoredRef = useRef(false);
 
@@ -725,22 +752,15 @@ function OrderPage() {
     clearOrderDraft();
   }, [hydrated, orderDraft, clearOrderDraft]);
 
-  // Restore pendingDocs from store after hydration.
-  // useState initializers run before the store hydrates, so docs starts empty.
-  // Once hydrated, pendingDocs has the saved value — sync it into docs.
-  const pendingDocsRestoredRef = useRef(false);
-  useEffect(() => {
-    if (!hydrated || pendingDocsRestoredRef.current) return;
-    if (pendingDocs.length > 0 && docs.length === 0) {
-      pendingDocsRestoredRef.current = true;
-      setDocs(pendingDocs);
-    }
-  }, [hydrated, pendingDocs, docs.length]);
+  // Docs always start fresh. We do NOT restore from pendingDocs across sessions.
+  // The only restore path is via orderDraft (guest → login → resume).
+
   const [shopSearch, setShopSearch] = useState("");
   const [shopFilters, setShopFilters] = useState({
     openOnly: true,
     nearest: false,
     lowestPrice: false,
+    minRating: 0,
   });
   const shop = useMemo<Shop>(
     () => shops.find((s) => s.id === shopId) ?? shops[0] ?? activeShop,
@@ -770,8 +790,8 @@ function OrderPage() {
   const filteredSortedShops = useMemo(() => {
     let result = [...shops];
 
-    // Exclude shops that have paused order intake.
-    result = result.filter((s) => s.acceptingOrders !== false);
+    // Only show shops visible to customers (approved, profile complete, services configured).
+    result = result.filter((s) => isShopVisibleToCustomers(s));
 
     // Always exclude closed shops.
     result = result.filter((s) => shopAvailability(s).open);
@@ -798,8 +818,16 @@ function OrderPage() {
       });
     }
 
+    // Minimum rating filter.
+    if (shopFilters.minRating > 0) {
+      result = result.filter((s) => {
+        const agg = shopDisplayRating(reviews, s);
+        return agg.rating >= shopFilters.minRating;
+      });
+    }
+
     return result;
-  }, [shops, shopSearch, shopFilters, docs, config, fulfillment]);
+  }, [shops, shopSearch, shopFilters, docs, config, fulfillment, reviews]);
 
   // Group filtered shops into pages of 3 for set-based scrolling.
   const shopPages = useMemo(() => {
@@ -869,6 +897,9 @@ function OrderPage() {
 
   const addFiles = async (incoming: File[]) => {
     if (!incoming.length) return;
+
+    // Show file names immediately in the upload card while processing.
+    setUploadingNames(incoming.map((f) => f.name));
 
     // Create document entries immediately with detecting state.
     const pendingDocs = incoming.map((file, index) => {
@@ -943,6 +974,10 @@ function OrderPage() {
       return;
     }
 
+    // Page detection done — clear uploading indicator. The upload card now
+    // derives its file list from docs via the fileNames prop.
+    setUploadingNames([]);
+
     // Show final toast after all detections complete.
     const needsReview = pendingDocs.filter((item) => !item.document.pageCountDetected).length;
     toast.success(`${incoming.length} document${incoming.length > 1 ? "s" : ""} added`, {
@@ -960,10 +995,18 @@ function OrderPage() {
     // A pending upload is deliberately transient and consumed once on arrival from Home.
   }, [pendingUploadFiles, consumePendingUploadFiles]);
 
-  // Sync docs to store so they persist across navigation/remounts.
+  // Clear temporary order state when leaving the New Order flow.
   useEffect(() => {
-    setPendingDocs(docs);
-  }, [docs, setPendingDocs]);
+    return () => {
+      setDocs([]);
+      setUploadedFiles({});
+      setUploadedFileNames([]);
+    };
+  }, []);
+
+  // Note: We intentionally do NOT sync docs to pendingDocs in the store.
+  // pendingDocs is only used for explicit draft restoration (e.g. after login).
+  // Within-page state lives in the local `docs` variable and is the single source of truth.
 
   // Sync uploaded file names so the Upload Document Card can restore its success state.
   useEffect(() => {
@@ -1112,7 +1155,18 @@ function OrderPage() {
       };
 
       const createdOrder = await placeOrder(order);
-      clearPendingDocs();
+      addNotification(
+      createNotification({
+        recipientId: shop.ownerAccountId ?? shop.id,
+        recipientRole: "shopkeeper",
+        type: "order_placed",
+        title: "New Order Received",
+        message: `Order ${order.id} placed by ${profile.name} — ${inr(price.total)}.`,
+        relatedEntityId: order.id,
+        entityType: "order",
+      }),
+    );
+    clearPendingDocs();
       setUploadedFileNames([]);
       toast.success("Order placed successfully!", {
         id: "place-order",
@@ -1153,17 +1207,28 @@ function OrderPage() {
                 >
                   <SectionCard
                     title="Upload documents"
-                    hint="Add one or more files. You can update each file’s print settings alongside it."
+                    hint="Add one or more files. You can update each file's print settings alongside it."
                   >
                     <DocumentUploadCard
                       multiple
-                      onFilesSelected={addFiles}
+                      onFilesSelected={(files) => {
+                        if (session?.role !== "customer") {
+                          setAuthDialogOpen(true);
+                          return;
+                        }
+                        void addFiles(files);
+                      }}
                       onFilesRemoved={() => {
+                        // Clean up cache for all documents being removed.
+                        for (const d of docs) {
+                          removeCachedFile(d.id);
+                        }
                         setDocs([]);
                         setUploadedFiles({});
                         setActiveDocumentId(null);
                       }}
-                      initialFileNames={uploadedFileNames}
+                      fileNames={docs.map((d) => d.name)}
+                      uploadingNames={uploadingNames}
                       hydrated={hydrated}
                       className="p-0 shadow-none"
                     />
@@ -1203,6 +1268,7 @@ function OrderPage() {
                         }
                         onPreview={() => setPreviewDocumentId(document.id)}
                         onRemove={() => {
+                          removeCachedFile(document.id);
                           setDocs((all) => {
                             const next = all.filter((item) => item.id !== document.id);
                             setActiveDocumentId((current) =>
@@ -1236,6 +1302,10 @@ function OrderPage() {
                         onChange={(event) => {
                           const selected = Array.from(event.target.files ?? []);
                           event.currentTarget.value = "";
+                          if (session?.role !== "customer") {
+                            setAuthDialogOpen(true);
+                            return;
+                          }
                           const unsupported = selected.find((file) => !isSupportedUpload(file));
                           if (unsupported) {
                             toast.error(`${unsupported.name} is not a supported file type.`);
@@ -1324,6 +1394,33 @@ function OrderPage() {
                               {opt.label}
                             </label>
                           ))}
+                          <div className="border-t border-border pt-2">
+                            <p className="mb-1.5 text-xs text-muted-foreground">Minimum rating</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {[
+                                { value: 0, label: "All" },
+                                { value: 3, label: "3+" },
+                                { value: 4, label: "4+" },
+                                { value: 4.5, label: "4.5+" },
+                              ].map((opt) => (
+                                <button
+                                  key={opt.value}
+                                  type="button"
+                                  onClick={() =>
+                                    setShopFilters((f) => ({ ...f, minRating: opt.value }))
+                                  }
+                                  className={cn(
+                                    "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                                    shopFilters.minRating === opt.value
+                                      ? "bg-primary text-primary-foreground"
+                                      : "bg-secondary text-muted-foreground hover:text-foreground",
+                                  )}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </div>
                       </PopoverContent>
                     </Popover>
@@ -1436,7 +1533,7 @@ function OrderPage() {
                                 {/* Row 3: Rating + Fulfilment */}
                                 <div className="mt-1.5 flex justify-between  items-center gap-2 text-xs">
                                   <div className="flex justify-center items-center gap-2 text-xs">
-                                    <span className="font-medium">★ {s.rating}</span>
+                                    <span className="font-medium">★ {shopDisplayRating(reviews, s).rating}</span>
                                     <span className="text-muted-foreground">
                                       {s.delivery.enabled ? "Pickup + Delivery" : "Pickup only"}
                                     </span>
@@ -1724,6 +1821,11 @@ function OrderPage() {
                                       .join(", ")}`
                                     : ""}
                                 </p>
+                                {document.pageRange && (
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    Range: {document.pageRange}
+                                  </p>
+                                )}
                                 {document.instructions && (
                                   <p className="mt-1 text-xs text-primary">
                                     Note: {document.instructions}
@@ -1842,10 +1944,11 @@ function OrderPage() {
                     }}
                   />
                 ) : (
-                  <div className="rounded-lg border border-dashed border-border p-4 text-center">
-                    <p className="text-sm font-semibold">Select a shop to continue</p>
+                  <div className="rounded-lg border border-dashed border-border p-6 text-center">
+                    <StoreIcon className="mx-auto h-8 w-8 text-muted-foreground" />
+                    <p className="mt-3 text-sm font-semibold">No shop selected</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Its live services and prices will appear here.
+                      Select a print shop to view its details.
                     </p>
                   </div>
                 )}
@@ -1885,6 +1988,104 @@ function OrderPage() {
             if (!open) setPreviewDocumentId(null);
           }}
         />
+        <Dialog open={authDialogOpen} onOpenChange={setAuthDialogOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-xl">Sign in to continue</DialogTitle>
+              <DialogDescription>
+                Create an account or sign in to upload documents and place orders.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-5 flex flex-col gap-3">
+              <Button
+                className="w-full"
+                size="lg"
+                onClick={() => {
+                  setAuthDialogOpen(false);
+                  navigate({ to: "/auth/customer/create-account" });
+                }}
+              >
+                Create an account
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full"
+                size="lg"
+                onClick={() => {
+                  setAuthDialogOpen(false);
+                  navigate({ to: "/auth/customer/login" });
+                }}
+              >
+                Sign in
+              </Button>
+            </div>
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-border" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">or</span>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              className="w-full"
+              size="lg"
+              onClick={async () => {
+                const result = await signInWithGoogle("customer");
+                if (!result.ok || !result.user) {
+                  toast.error(result.error ?? "Google sign-in failed.");
+                  return;
+                }
+                setAuthDialogOpen(false);
+                const { user } = result;
+                const accounts = await getAllAccounts();
+                let account = accounts.find(
+                  (a) => a.email.toLowerCase() === user.email.toLowerCase() && a.role === "customer",
+                );
+                if (!account) {
+                  const created = await createAccount(user.email, `google-${user.sub}`, "customer", user.name);
+                  if (typeof created === "string") {
+                    toast.error(created);
+                    return;
+                  }
+                  account = created;
+                }
+                signIn({
+                  accountId: account.id,
+                  role: "customer",
+                  email: account.email,
+                  name: user.name,
+                  phone: account.phone,
+                  registrationStatus: account.registrationStatus,
+                  accountStatus: account.accountStatus,
+                });
+                if (account.registrationStatus === "incomplete") {
+                  updateAccount(account.id, { registrationStatus: "complete" });
+                  signIn({
+                    accountId: account.id,
+                    role: "customer",
+                    email: account.email,
+                    name: user.name,
+                    phone: account.phone,
+                    registrationStatus: "complete",
+                    accountStatus: account.accountStatus,
+                  });
+                }
+                toast.success("Signed in with Google");
+                navigate({ to: "/order" });
+              }}
+            >
+              <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+              </svg>
+              Continue with Google
+            </Button>
+          </DialogContent>
+        </Dialog>
       </div>
     </CustomerShell>
   );

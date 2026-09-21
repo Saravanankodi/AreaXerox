@@ -9,9 +9,10 @@ export const Route = createFileRoute("/shop/disabled")({
 
 function ShopDisabledPage() {
   const navigate = useNavigate();
-  const { session, signOut } = useAuth();
+  const { session, signOut, ready } = useAuth();
 
   useEffect(() => {
+    if (!ready) return;
     if (!session || session.role !== "shopkeeper") {
       navigate({ to: "/auth/shop/login" });
       return;
@@ -19,9 +20,9 @@ function ShopDisabledPage() {
     if (session.accountStatus === "active") {
       navigate({ to: "/shop" });
     }
-  }, [session, navigate]);
+  }, [session, navigate, ready]);
 
-  if (!session || session.role !== "shopkeeper" || session.accountStatus === "active") {
+  if (!ready || !session || session.role !== "shopkeeper" || session.accountStatus === "active") {
     return null;
   }
 

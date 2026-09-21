@@ -5,11 +5,10 @@ import {
   getDocs,
   setDoc,
   updateDoc,
-  onSnapshot,
   query,
   where,
 } from "firebase/firestore";
-import { db, fsGet, fsSet } from "@/lib/firebase/firestore";
+import { db } from "@/lib/firebase/firestore";
 import type { ShopApplication, ShopkeeperProfile } from "@/types";
 
 export async function getShopkeeperApplication(accountId: string): Promise<ShopApplication | null> {
@@ -66,6 +65,19 @@ export async function submitShopkeeperApplication(application: ShopApplication):
       },
       { merge: true },
     );
+
+    // Keep the account document (users/{accountId}) in sync so the login
+    // gate and session restore see the correct registration/account status.
+    await setDoc(
+      doc(db, "users", application.accountId),
+      {
+        registrationStatus: "complete",
+        accountStatus: "pending",
+        shopName: application.shopName,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true },
+    );
   }
 }
 
@@ -84,7 +96,7 @@ export async function updateShopkeeperApplication(
   if (snap.exists()) {
     const app = snap.data() as ShopApplication;
     if (app.accountId) {
-      const skPatch: any = { updatedAt: new Date().toISOString() };
+      const skPatch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
       if (patch.accountStatus) skPatch.accountStatus = patch.accountStatus;
       if (patch.rejectionReason) skPatch.rejectionReason = patch.rejectionReason;
       await updateDoc(doc(db, "shopkeepers", app.accountId), skPatch);

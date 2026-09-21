@@ -13,7 +13,7 @@ import { useAuth } from "@/lib/auth";
 
 import { useStore } from "@/lib/store";
 
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { GoogleAuthProvider, signInWithEmailAndPassword, signInWithPopup } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { AccountRole } from "@/types";
 
@@ -135,11 +135,6 @@ export function AuthPage({
           return;
         }
 
-        toast.success("Account created", {
-          description: isShop
-            ? "Complete your shop registration to continue."
-            : "Complete your profile to continue.",
-        });
         toast.success("Account created", {
           description: isShop
             ? "Complete your shop registration to continue."
@@ -708,6 +703,100 @@ export function AuthPage({
                   : "Sign in"}
             </Button>
           </form>
+          <div className="relative mt-6">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-2 text-muted-foreground">
+                or
+              </span>
+            </div>
+          </div>
+
+          <Button
+            variant="outline"
+            className="mt-4 w-full"
+            size="lg"
+            disabled={loading}
+            onClick={async () => {
+              if (loading) return;
+
+              setLoading(true);
+
+              try {
+                const provider = new GoogleAuthProvider();
+
+                const credential = await signInWithPopup(
+                  auth,
+                  provider,
+                );
+
+                const user = credential.user;
+
+                const account = await getAccount(user.uid);
+
+                if (!account) {
+                  toast.error(
+                    "Your Google account profile could not be found.",
+                  );
+
+                  await auth.signOut();
+                  return;
+                }
+
+                if (account.role !== role) {
+                  toast.error(
+                    `This account is registered as a ${account.role}.`,
+                  );
+
+                  await auth.signOut();
+                  return;
+                }
+
+                signIn({
+                  accountId: account.id,
+                  role: account.role,
+                  email: account.email,
+                  name:
+                    account.name ||
+                    user.displayName ||
+                    user.email?.split("@")[0] ||
+                    "User",
+                  phone: account.phone ?? "",
+                  registrationStatus:
+                    account.registrationStatus,
+                  accountStatus:
+                    account.accountStatus,
+                });
+
+                toast.success("Signed in with Google", {
+                  description: "Your session is ready.",
+                });
+
+                navigate({
+                  to: isShop
+                    ? "/shop"
+                    : orderDraft
+                      ? "/order"
+                      : "/",
+                });
+              } catch (error: unknown) {
+                console.error(
+                  "Google sign-in error:",
+                  error,
+                );
+
+                toast.error(
+                  "Unable to sign in with Google. Please try again.",
+                );
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            Continue with Google
+          </Button>
 
           {/* Login / signup switch */}
 

@@ -3,13 +3,13 @@ import {
   doc,
   getDoc,
   getDocs,
-  setDoc,
   updateDoc,
   onSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/firestore";
-import type { Account, ShopApplication } from "@/types";
+import type { Account, AccountStatus, ShopApplication } from "@/types";
 import { buildShopFromApplication, saveShop } from "./shop.service";
+import { getShopByOwner } from "@/lib/firestore/shops";
 
 export async function getAllApplications(): Promise<ShopApplication[]> {
   const colRef = collection(db, "shopApplications");
@@ -50,8 +50,23 @@ export async function approveApplication(applicationId: string): Promise<void> {
       updatedAt: new Date().toISOString(),
     });
 
-    // Create live Shop record in `shops` collection
+    // Keep the account document (users/{accountId}) in sync so the login
+    // gate and session restore reflect the approval immediately.
+    await updateDoc(doc(db, "users", app.accountId), {
+      accountStatus: "active",
+      registrationStatus: "complete",
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Create live Shop record in `shops` collection — reuse an existing shop
+    // doc for this owner (created during onboarding) instead of spawning a
+    // second, orphaned shop record.
     const shop = buildShopFromApplication(app);
+    shop.ownerAccountId = app.accountId;
+    shop.ownerId = app.accountId;
+    shop.accountStatus = "active" as AccountStatus;
+    const existing = await getShopByOwner(app.accountId);
+    shop.id = existing?.id ?? app.accountId;
     await saveShop(shop);
   }
 }
@@ -74,6 +89,12 @@ export async function rejectApplication(applicationId: string, reason: string): 
   if (app.accountId) {
     const skRef = doc(db, "shopkeepers", app.accountId);
     await updateDoc(skRef, {
+      accountStatus: "rejected",
+      rejectionReason: reason,
+      updatedAt: new Date().toISOString(),
+    });
+
+    await updateDoc(doc(db, "users", app.accountId), {
       accountStatus: "rejected",
       rejectionReason: reason,
       updatedAt: new Date().toISOString(),

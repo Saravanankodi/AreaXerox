@@ -31,5 +31,20 @@ service cloud.firestore {
     match /shopApplications/{applicationId} {
       allow read, write: if true;
     }
+
+    // Shopkeepers (accounts + profiles)
+    match /shopkeepers/{shopkeeperId} {
+      allow read, write: if true;
+    }
+
+    // Admins
+    match /admins/{adminId} {
+      allow read, write: if true;
+    }
+
+    // Support Tickets
+    match /supportTickets/{ticketId} {
+      allow read, write: if true;
+    }
   }
 }

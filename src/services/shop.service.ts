@@ -4,7 +4,6 @@ import {
   getDoc,
   getDocs,
   setDoc,
-  updateDoc,
   onSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/firestore";
@@ -157,9 +156,11 @@ export async function updateShopInDb(
 ): Promise<void> {
   const docRef = doc(db, "shops", shopId);
   const snap = await getDoc(docRef);
-  if (snap.exists()) {
-    const prev = { id: snap.id, ...snap.data() } as Shop;
-    const updated = updater(prev);
-    await setDoc(docRef, { ...prev, ...updated }, { merge: true });
-  }
+  // Upsert: a shop can exist in local state before its Firestore doc is written,
+  // so fall back to a minimal base instead of failing the write.
+  const prev = snap.exists()
+    ? ({ id: snap.id, ...snap.data() } as Shop)
+    : ({ id: shopId } as Shop);
+  const updated = updater(prev);
+  await setDoc(docRef, { ...prev, ...updated, id: shopId }, { merge: true });
 }

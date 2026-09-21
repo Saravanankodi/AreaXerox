@@ -412,24 +412,24 @@ function SupportPage() {
             </div>
 
             {/* Contact Us */}
-            <aside className="card-surface h-fit p-5">
+            <aside className="card-surface flex flex-col h-fit p-5">
               <h2 className="text-base font-semibold">
                 Contact us directly
               </h2>
 
               <p className="mt-3 inline-flex items-center gap-2 text-sm">
                 <Phone className="h-4 w-4 text-primary" />
-                +91 80000 12345
+                +91 9092579460
               </p>
 
               <p className="mt-2 inline-flex items-center gap-2 text-sm">
                 <Mail className="h-4 w-4 text-primary" />
-                help@ordermyxerox.in
+                desflyer.tech@gmail.com
               </p>
-
+{/* 
               <p className="mt-4 text-xs text-muted-foreground">
                 Support hours: 9:00 AM – 9:00 PM, every day.
-              </p>
+              </p> */}
             </aside>
           </div>
         </div>

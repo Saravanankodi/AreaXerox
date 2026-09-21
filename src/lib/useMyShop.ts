@@ -16,7 +16,11 @@ export function useMyShop() {
 
   const byShopId = session?.shopId ? shops.find((s) => s.id === session.shopId) : undefined;
   const byOwner =
-    session?.role === "shopkeeper" ? shops.find((s) => s.ownerId === session.accountId) : undefined;
+    session?.role === "shopkeeper"
+      ? shops.find(
+          (s) => s.ownerAccountId === session.accountId || s.ownerId === session.accountId,
+        )
+      : undefined;
   const resolved = byShopId ?? byOwner ?? activeShop;
 
   // Self-heal legacy accounts (created before shopId binding existed).

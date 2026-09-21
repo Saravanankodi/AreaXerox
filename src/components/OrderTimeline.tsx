@@ -18,19 +18,28 @@ export function OrderTimeline({
 
   return (
     <div className="overflow-x-auto pb-2">
-      <div className="flex min-w-[480px] items-start gap-0 px-10">
+      <div className="flex min-w-[480px] items-start gap-0 ">
         {flow.map((s, i) => {
           const entry = timeline.find((t) => t.status === s);
           const isDone = reached(s) && i < currentIndex;
           const isCurrent = s === status;
           return (
             <div key={s} className="flex flex-1 flex-col items-center">
-              <div className="flex w-full items-center justify-center">
-                {i > 0 && (
-                  <span
-                    className={cn("h-px flex-1", isDone || isCurrent ? "bg-success" : "bg-border")}
-                  />
-                )}
+              <div className="relative flex w-full items-center justify-center">
+                <span
+                  className={cn(
+                    "absolute left-0 h-px",
+                    i > 0 ? "right-0" : "w-4",
+                    isDone || isCurrent ? "bg-success" : "bg-border",
+                  )}
+                />
+                <span
+                  className={cn(
+                    "absolute right-0 h-px",
+                    i < flow.length - 1 ? "left-0" : "w-4",
+                    isDone ? "bg-success" : "bg-border",
+                  )}
+                />
                 <span
                   className={cn(
                     "z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
@@ -41,9 +50,6 @@ export function OrderTimeline({
                 >
                   {isDone ? <Check className="h-4 w-4" /> : i + 1}
                 </span>
-                {i < flow.length - 1 && (
-                  <span className={cn("h-px flex-1", isDone ? "bg-success" : "bg-border")} />
-                )}
               </div>
               <p
                 className={cn(

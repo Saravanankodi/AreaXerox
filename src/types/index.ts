@@ -39,6 +39,14 @@ export type PaymentCollectedVia =
   | "upi"
   | "card";
 
+export type ShopPaymentMethod =
+  | "upi"
+  | "bank_transfer";
+
+export type CustomerPayoutMethod =
+  | "upi"
+  | "bank_transfer";
+
 
 /* =========================================================
  * ORDER STATUS
@@ -71,6 +79,11 @@ export interface Account {
   registrationStatus: RegistrationStatus;
 
   accountStatus: AccountStatus;
+
+  /**
+   * Only present for demo/bootstrap accounts.
+   */
+  passwordHash?: string;
 
   createdAt: string;
 
@@ -198,14 +211,18 @@ export interface ShopApplicationServices {
  * SHOP APPLICATION
  * ======================================================= */
 
-export interface ShopApplication extends Shop {
+export interface ShopApplication {
+  id: string;
+
   accountId?: string;
 
   shopName: string;
 
   shopkeeperProfile: {
+    accountId?: string;
     ownerName: string;
     phone: string;
+    alternatePhone?: string;
     username: string;
   };
 
@@ -451,6 +468,49 @@ export interface Shop {
   /** Whether the shop is currently accepting new orders (toggled from Shop Settings). */
   acceptingOrders?: boolean;
 
+  /** Firebase Auth UID of the owning account (used to look up the owner's application). */
+  ownerAccountId?: string;
+
+  ownerPhone?: string;
+
+  workingDaysFrom?: string;
+
+  workingDaysTo?: string;
+
+  addressLine1?: string;
+
+  addressLine2?: string;
+
+  zip?: string;
+
+  country?: string;
+
+  /** How the shop receives payouts. */
+  shopPaymentMethod?: ShopPaymentMethod;
+
+  upiId?: string;
+
+  upiVerified?: boolean;
+
+  bankName?: string;
+
+  bankAccountNumber?: string;
+
+  bankIfsc?: string;
+
+  bankBranch?: string;
+
+  frontImage?: string;
+
+  interiorImage?: string;
+
+  /** Whether the shop owner has checked in / opened the shop for the day. */
+  isOpen?: boolean;
+
+  lastCheckInAt?: string;
+
+  lastCheckOutAt?: string;
+
   /** Shopkeeper preferences, persisted with the shop document in Firestore. */
   settings?: {
     notifications: {
@@ -493,6 +553,11 @@ export interface DocumentFile {
   pageCountDetected?: boolean;
 
   detectingPages?: boolean;
+
+  /**
+   * Pages selected for printing ("all" = "1-pages").
+   */
+  pageRange?: string;
 
   printConfig?: PrintConfig;
 
@@ -767,6 +832,33 @@ export interface CustomerProfile {
   phone: string;
 
   alternatePhone?: string;
+
+  addressLine1?: string;
+
+  addressLine2?: string;
+
+  city?: string;
+
+  state?: string;
+
+  zip?: string;
+
+  country?: string;
+
+  /** How the customer prefers to be paid out (refunds etc.). */
+  payoutMethod?: CustomerPayoutMethod;
+
+  upiId?: string;
+
+  upiVerified?: boolean;
+
+  bankName?: string;
+
+  bankAccountNumber?: string;
+
+  bankIfsc?: string;
+
+  bankBranch?: string;
 }
 
 
@@ -954,4 +1046,82 @@ export interface CreateShopInput {
   closingTime?: string;
 
   workingDays?: string[];
+}
+
+
+/* =========================================================
+ * REVIEW
+ * ======================================================= */
+
+export interface Review {
+  id: string;
+
+  orderId: string;
+
+  shopId: string;
+
+  shopName?: string;
+
+  customerId: string;
+
+  customerName: string;
+
+  rating: number;
+
+  description?: string;
+
+  reply?: string;
+
+  createdAt: string;
+
+  updatedAt?: string;
+}
+
+
+/* =========================================================
+ * NOTIFICATION
+ * ======================================================= */
+
+export type NotificationType =
+  | "order_placed"
+  | "order_accepted"
+  | "order_rejected"
+  | "order_status_changed"
+  | "printing_started"
+  | "printing_completed"
+  | "ready_pickup"
+  | "out_for_delivery"
+  | "delivered"
+  | "payment_update"
+  | "review_received"
+  | "application_approved"
+  | "application_rejected"
+  | "account"
+  | "info";
+
+export type NotificationRecipientRole =
+  | "customer"
+  | "shopkeeper"
+  | "admin";
+
+export interface Notification {
+  id: string;
+
+  recipientId: string;
+
+  recipientRole: NotificationRecipientRole;
+
+  type: NotificationType;
+
+  title: string;
+
+  message: string;
+
+  relatedEntityId?: string;
+
+  entityType?: "order" | "review" | "support";
+
+  read: boolean;
+
+  createdAt: string;
 }

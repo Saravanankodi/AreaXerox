@@ -52,6 +52,8 @@ export interface AccountSession {
 
   shopId?: string;
 
+  shopName?: string;
+
   registrationStatus: RegistrationStatus;
   accountStatus: AccountStatus;
 }
@@ -155,18 +157,68 @@ function userFromFirestore(
 async function getUserById(
   id: string,
 ): Promise<UserAccount | undefined> {
-  const snapshot = await getDoc(
-    doc(db, "users", id),
-  );
+  for (const collectionName of ["users", "shopkeepers", "admins"]) {
+    try {
+      const snapshot = await getDoc(
+        doc(db, collectionName, id),
+      );
 
-  if (!snapshot.exists()) {
-    return undefined;
+      if (snapshot.exists()) {
+        return userFromFirestore(
+          snapshot.id,
+          snapshot.data(),
+        );
+      }
+    } catch (error) {
+      // No access (rules) or a transient network issue on this collection must
+      // never abort the whole lookup — move on so an account stored elsewhere
+      // can still be resolved.
+      console.warn(
+        `getUserById: could not read ${collectionName}/${id}:`,
+        error,
+      );
+    }
   }
 
-  return userFromFirestore(
-    snapshot.id,
-    snapshot.data(),
-  );
+  return undefined;
+}
+
+
+/* =========================================================
+ * SESSION CACHE
+ * ======================================================= */
+
+const SESSION_CACHE_KEY = "omx-session-v1";
+
+function readCachedSession(): AccountSession | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(SESSION_CACHE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as AccountSession;
+    if (!parsed || typeof parsed.accountId !== "string") return null;
+
+    return parsed;
+  } catch (error) {
+    console.warn("Could not read cached session:", error);
+    return null;
+  }
+}
+
+function writeCachedSession(next: AccountSession | null): void {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (next) {
+      window.localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(next));
+    } else {
+      window.localStorage.removeItem(SESSION_CACHE_KEY);
+    }
+  } catch (error) {
+    console.warn("Could not write cached session:", error);
+  }
 }
 
 
@@ -197,39 +249,61 @@ export function AuthProvider({
         async (user: User | null) => {
           try {
             if (!user) {
+              writeCachedSession(null);
+
               setSession(null);
               setReady(true);
+
               return;
             }
 
-            const account =
-              await getUserById(user.uid);
+            let account: UserAccount | undefined;
 
-            if (!account) {
+            try {
+              account = await getUserById(user.uid);
+            } catch (error) {
+              // A Firestore read error (rules/network) must NEVER log the user
+              // out — that is what made refreshes bounce users back to login.
               console.error(
-                "Firebase user exists but Firestore user does not exist.",
+                "Session restore account lookup failed:",
+                error,
               );
+            }
 
-              await firebaseSignOut(auth);
+            if (account) {
+              const restored: AccountSession = {
+                accountId: account.id,
+                role: account.role,
 
-              setSession(null);
+                name: account.name,
+                email: account.email,
+                phone: account.phone,
+
+                shopId: account.shopId,
+
+                registrationStatus: account.registrationStatus,
+                accountStatus: account.accountStatus,
+              };
+
+              setSession(restored);
+              writeCachedSession(restored);
 
               return;
             }
 
-            setSession({
-              accountId: account.id,
-              role: account.role,
+            // Firebase is signed in but no account doc could be resolved.
+            // Keep the Firebase session (no destructive sign-out) and reuse
+            // the cached session when it belongs to this user, so a refresh
+            // does not force a re-login.
+            console.warn(
+              "Firebase user exists but no Firestore account was resolved for",
+              user.uid,
+            );
 
-              name: account.name,
-              email: account.email,
-              phone: account.phone,
-
-              shopId: account.shopId,
-
-              registrationStatus: account.registrationStatus,
-              accountStatus: account.accountStatus,
-            });
+            const cached = readCachedSession();
+            setSession(
+              cached?.accountId === user.uid ? cached : null,
+            );
           } catch (error) {
             console.error(
               "Failed to restore authentication session:",
@@ -256,6 +330,7 @@ export function AuthProvider({
   const signIn = useCallback(
     (next: AccountSession) => {
       setSession(next);
+      writeCachedSession(next);
     },
     [],
   );
@@ -269,6 +344,7 @@ export function AuthProvider({
     async () => {
       await firebaseSignOut(auth);
 
+      writeCachedSession(null);
       setSession(null);
     },
     [],
@@ -432,6 +508,22 @@ export function AuthProvider({
           accountStatus,
         });
 
+        writeCachedSession({
+          accountId: uid,
+
+          role,
+
+          name: normalizedName,
+
+          email: normalizedEmail,
+
+          phone: normalizedPhone,
+
+          registrationStatus,
+
+          accountStatus,
+        });
+
 
         return account;
       } catch (error: unknown) {
@@ -518,7 +610,7 @@ export function AuthProvider({
             }
 
 
-            return {
+            const next: AccountSession = {
               ...current,
 
               ...(patch.name !== undefined
@@ -567,6 +659,10 @@ export function AuthProvider({
                 }
                 : {}),
             };
+
+            writeCachedSession(next);
+
+            return next;
           },
         );
       }

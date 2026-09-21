@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@/lib/navigation";
+import { useEffect, useState } from "react";
 import { Clock } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { useEffect, useState } from "react";
 import { getShopByOwner } from "@/lib/firestore/shops";
 import type { Shop } from "@/types";
 
@@ -11,27 +11,25 @@ export const Route = createFileRoute("/shop/pending")({
 
 function ShopPendingPage() {
   const navigate = useNavigate();
-  const { session, signOut } = useAuth();
+  const { session, signOut, ready } = useAuth();
   const [application, setApplication] = useState<Shop | undefined>();
 
   useEffect(() => {
-    if (!session || session.role !== "shopkeeper") {
-      navigate({ to: "/auth/shop/login" });
-      return;
-    }
-    if (session.accountStatus === "active") {
-      navigate({ to: "/shop" });
-      return;
-    }
-    if (session.accountStatus === "rejected") {
-      navigate({ to: "/shop/rejected" });
+    if (!ready) return;
+    // Redirect all shopkeepers to the dashboard — the dashboard handles onboarding state.
+    if (session && session.role === "shopkeeper") {
+      navigate({ to: "/shop", replace: true });
+    } else {
+      navigate({ to: "/auth/shop/login", replace: true });
       return;
     }
     // Load shop/application from Firestore
     getShopByOwner(session.accountId)
       .then(setApplication)
       .catch(console.error);
-  }, [session, navigate]);
+  }, [session, navigate, ready]);
+
+  if (!ready) return null;
 
   if (!session || session.role !== "shopkeeper" || session.accountStatus === "active" || session.accountStatus === "rejected") {
     return null;
