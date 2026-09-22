@@ -100,12 +100,12 @@ function ShopOrders() {
                     {/* Customer */}
                     <div className="min-w-0 flex-[2]">
                       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Customer</p>
-                      <p className="mt-0.5 truncate font-semibold">{o.customerName}</p>
+                      <p className="mt-0.5 truncate font-semibold">{o.customerName || "Customer"}</p>
                     </div>
                     {/* Phone */}
                     <div className="min-w-0 flex-[1.5]">
                       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Phone</p>
-                      <p className="mt-0.5 truncate">{o.customerPhone}</p>
+                      <p className="mt-0.5 truncate">{o.customerPhone || "—"}</p>
                     </div>
                     {/* Total Files */}
                     <div className="min-w-0 flex-1 text-center">
@@ -184,11 +184,11 @@ function ShopOrders() {
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Customer</p>
-                        <p className="mt-0.5 font-semibold">{o.customerName}</p>
+                        <p className="mt-0.5 font-semibold">{o.customerName || "Customer"}</p>
                       </div>
                       <div>
                         <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Phone</p>
-                        <p className="mt-0.5">{o.customerPhone}</p>
+                        <p className="mt-0.5">{o.customerPhone || "—"}</p>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -282,7 +282,7 @@ function ShopOrders() {
                     >
                       Order #{o.id}
                     </Link>
-                    <p className="mt-1 text-sm text-muted-foreground">{o.customerName}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{o.customerName || "Customer"}</p>
                   </div>
                   <span className="text-lg font-bold whitespace-nowrap">{inr(o.price.total)}</span>
                 </div>
@@ -333,7 +333,7 @@ function ShopOrders() {
                     >
                       Order #{o.id}
                     </Link>
-                    <p className="mt-1 text-sm text-muted-foreground">{o.customerName}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{o.customerName || "Customer"}</p>
                   </div>
                   <span className="text-lg font-bold whitespace-nowrap">{inr(o.price.total)}</span>
                 </div>

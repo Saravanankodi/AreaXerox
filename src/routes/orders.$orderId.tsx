@@ -9,6 +9,7 @@ import { PaymentBadge, StatusBadge } from "@/components/StatusBadge";
 import { useStore } from "@/lib/store";
 import { calculateDocumentPrices, inr } from "@/lib/pricing";
 import { customerStatusCopy, fulfillmentLabel } from "@/lib/labels";
+import { formatShopAddress } from "@/lib/address";
 import type { DocumentFile } from "@/types";
 
 export const Route = createFileRoute("/orders/$orderId")({
@@ -288,7 +289,7 @@ function OrderDetail() {
                   <Store className="h-4 w-4 text-primary" /> {shop.name}
                 </p>
                 <p className="mt-2 inline-flex items-start gap-2 text-sm text-muted-foreground">
-                  <MapPin className="mt-0.5 h-4 w-4 shrink-0" /> {shop.address}
+                  <MapPin className="mt-0.5 h-4 w-4 shrink-0" /> {formatShopAddress(shop)}
                 </p>
                 <p className="mt-2 inline-flex items-center gap-2 text-sm text-muted-foreground">
                   <Phone className="h-4 w-4" /> {shop.phone}

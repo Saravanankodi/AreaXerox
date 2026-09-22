@@ -475,7 +475,7 @@ function ShopOrderDetail() {
                 <div className="min-w-0">
                   <p className="text-xs text-muted-foreground">Customer</p>
                   <p className="text-sm font-medium">
-                    {order.customerName}
+                    {order.customerName || "Customer"}
                   </p>
                 </div>
               </div>
@@ -484,7 +484,7 @@ function ShopOrderDetail() {
                 <div className="min-w-0">
                   <p className="text-xs text-muted-foreground">Phone</p>
                   <p className="text-sm font-medium">
-                    {order.customerPhone}
+                    {order.customerPhone || "—"}
                   </p>
                 </div>
               </div>

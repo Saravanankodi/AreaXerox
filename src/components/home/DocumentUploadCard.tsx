@@ -20,7 +20,7 @@ export function DocumentUploadCard({
   className,
 }: {
   multiple?: boolean | undefined;
-  onFilesSelected?: ((files: File[]) => void | Promise<void>) | undefined;
+  onFilesSelected?: ((files: File[]) => boolean | void | Promise<boolean | void>) | undefined;
   onFilesRemoved?: (() => void) | undefined;
   fileNames?: string[] | undefined;
   uploadingNames?: string[] | undefined;
@@ -62,7 +62,11 @@ export function DocumentUploadCard({
     const accepted = multiple ? selected : selected.slice(0, 1);
     setState("uploading");
     await new Promise<void>((resolve) => window.setTimeout(resolve, 420));
-    await onFilesSelected?.(accepted);
+    const handled = await onFilesSelected?.(accepted);
+    if (handled === false) {
+      setState(hasFiles ? "success" : "idle");
+      return;
+    }
     setState("success");
   };
 

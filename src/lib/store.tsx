@@ -25,10 +25,9 @@ import type {
   SupportTicket,
 } from "@/types";
 
-import { seedAddresses, seedProfile, seedShops } from "./seed";
 import { createShop as createShopInDb, listenToShops, updateShopInFirestore } from "@/lib/firestore/shops";
 import { saveShopkeeperProfileToFirestore } from "@/lib/firestore/users";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, query, updateDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
   createFirestoreOrder,
@@ -42,6 +41,8 @@ import {
   submitShopkeeperApplication as submitShopkeeperApplicationToDb,
 } from "@/services/shopkeeper.service";
 import {
+  getUserProfile,
+  getUserAddresses,
   saveUserAddress,
   deleteUserAddress,
   updateUserProfile,
@@ -64,13 +65,19 @@ interface AppState {
   shopkeeperProfiles: Record<string, ShopkeeperProfile>;
 }
 
+const emptyProfile: CustomerProfile = {
+  name: "",
+  email: "",
+  phone: "",
+};
+
 const initialState: AppState = {
-  shops: seedShops,
+  shops: [],
   orders: [],
   reviews: [],
   notifications: [],
-  addresses: seedAddresses,
-  profile: seedProfile,
+  addresses: [],
+  profile: emptyProfile,
   tickets: [],
   shopkeeperApplications: {},
   activeShopId: "",
@@ -118,6 +125,57 @@ interface StoreValue extends AppState {
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
+
+let backfillRunning = false;
+
+/**
+ * One-time repair for orders placed with an empty customer name/phone (e.g.
+ * created before the profile fallback existed). Resolves the customer's
+ * account doc (users/{customerId}) and patches the order so the shopkeeper
+ * always sees who placed it.
+ */
+async function backfillMissingOrderCustomers(orders: Order[]) {
+  if (backfillRunning) return;
+  const dirty = orders.filter(
+    (o) => !!o.customerId && (!o.customerName?.trim() || !o.customerPhone?.trim()),
+  );
+  if (!dirty.length) return;
+  backfillRunning = true;
+  try {
+    const resolved = new Map<string, { name: string; phone: string } | null>();
+    for (const order of dirty) {
+      const uid = order.customerId;
+      if (uid == null) continue;
+      if (!resolved.has(uid)) {
+        try {
+          const snapshot = await getDoc(doc(db, "users", uid));
+          const data = snapshot.exists() ? snapshot.data() : null;
+          const nested = data?.profile as { name?: string; phone?: string } | undefined;
+          resolved.set(
+            uid,
+            data
+              ? {
+                  name: String(data.name ?? nested?.name ?? ""),
+                  phone: String(data.phone ?? nested?.phone ?? ""),
+                }
+              : null,
+          );
+        } catch {
+          resolved.set(uid, null);
+        }
+      }
+      const info = resolved.get(uid);
+      const name = order.customerName?.trim() || info?.name?.trim() || "Customer";
+      const phone = order.customerPhone?.trim() || info?.phone?.trim() || "";
+      if (name === order.customerName && phone === order.customerPhone) continue;
+      await updateDoc(doc(db, "orders", order.id), { customerName: name, customerPhone: phone });
+    }
+  } catch (error) {
+    console.warn("Order customer backfill failed:", error);
+  } finally {
+    backfillRunning = false;
+  }
+}
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth();
@@ -180,6 +238,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           orders: firestoreOrders,
         }));
         setHydrated(true);
+        void backfillMissingOrderCustomers(firestoreOrders);
       },
       (error) => {
         console.warn("Failed to subscribe to orders in Firestore, continuing with hydration:", error);
@@ -203,6 +262,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       })
       .catch(console.error);
   }, [session?.accountId]);
+
+  // Hydrate the signed-in customer's profile and saved addresses from Firestore
+  // so the order flow shows real data (never demo/seed data).
+  useEffect(() => {
+    if (!session?.accountId || session.role !== "customer") return;
+
+    let cancelled = false;
+
+    getUserProfile(session.accountId)
+      .then((p) => {
+        if (cancelled || !p) return;
+        setState((s) => ({ ...s, profile: { ...s.profile, ...p } }));
+      })
+      .catch(console.error);
+
+    getUserAddresses(session.accountId)
+      .then((list) => {
+        if (cancelled) return;
+        setState((s) => ({ ...s, addresses: list }));
+      })
+      .catch(console.error);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.accountId, session?.role]);
 
   const updateShop = useCallback((shopId: string, updater: (shop: Shop) => Shop) => {
     setState((s) => {

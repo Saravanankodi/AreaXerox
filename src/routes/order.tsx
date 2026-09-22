@@ -33,16 +33,19 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { DocumentUploadCard } from "@/components/home/DocumentUploadCard";
 import { cn } from "@/lib/utils";
 import { newOrderId, useStore } from "@/lib/store";
-import { useAuth } from "@/lib/auth";
+import { useAuth, healAccountIdentity } from "@/lib/auth";
 import { uploadFileToCloudinary } from "@/lib/cloudinary";
 import { calculateDocumentPrices, calculateOrderPrice, inr, paymentSplit } from "@/lib/pricing";
 import { detectPageCount } from "@/lib/document-pages";
 import { paymentMethodLabel } from "@/lib/labels";
 import { shopDisplayRating } from "@/lib/shop-rating";
+import { formatShopAddress } from "@/lib/address";
+import { formatTime12h } from "@/lib/time";
 import { isShopVisibleToCustomers } from "@/lib/shop-status";
 import { createNotification } from "@/lib/notifications";
 import { ACCEPTED_UPLOAD_TYPES, isSupportedUpload } from "@/lib/upload-config";
 import { signInWithGoogle } from "@/lib/auth-google";
+import { getUserProfile } from "@/services/user.service";
 import type {
   Address,
   DocumentFile,
@@ -272,7 +275,9 @@ function FilePrintOptions({
               }
             >
               <option value="bw">Black & White</option>
-              {shop.printTypes.color && <option value="color">Colour</option>}
+              {shop.paperTypes.some((p) => p.enabled && p.colorEnabled) && (
+                <option value="color">Colour</option>
+              )}
             </SelectControl>
             <SelectControl
               label="Format"
@@ -438,7 +443,7 @@ function ShopSummaryPanel({
           <h2 className="mt-1 truncate text-lg font-bold">{shop.name}</h2>
           <p className="mt-1 text-xs text-muted-foreground">
             {shop.openingTime && shop.closingTime
-              ? `${shop.openingTime}–${shop.closingTime}`
+              ? `${formatTime12h(shop.openingTime)}–${formatTime12h(shop.closingTime)}`
               : shop.hours}
           </p>
         </div>
@@ -688,7 +693,6 @@ function OrderPage() {
     placeOrder,
     saveAddress,
     clearPendingDocs,
-    pendingUploadFiles,
     consumePendingUploadFiles,
     uploadedFileNames,
     setUploadedFileNames,
@@ -800,7 +804,7 @@ function OrderPage() {
     if (shopSearch.trim()) {
       const q = shopSearch.toLowerCase();
       result = result.filter(
-        (s) => s.name.toLowerCase().includes(q) || s.address.toLowerCase().includes(q),
+        (s) => s.name.toLowerCase().includes(q) || formatShopAddress(s).toLowerCase().includes(q),
       );
     }
 
@@ -988,12 +992,25 @@ function OrderPage() {
   };
 
   useEffect(() => {
-    if (!pendingUploadFiles.length) return;
-    const transferredFiles = consumePendingUploadFiles();
-    if (!transferredFiles.length) return;
-    void addFiles(transferredFiles);
-    // A pending upload is deliberately transient and consumed once on arrival from Home.
-  }, [pendingUploadFiles, consumePendingUploadFiles]);
+    // Files queued from the Home page are consumed once the page has settled.
+    // Work is deferred with a timeout so a simulated mount-unmount (React
+    // StrictMode / fast refresh) cancels the first attempt instead of consuming
+    // the queue before the real mount. It also waits for hydration so it runs
+    // after the order-draft restore, never over-writing it.
+    if (!hydrated) return;
+    let closed = false;
+    const timer = window.setTimeout(() => {
+      if (closed) return;
+      const transferredFiles = consumePendingUploadFiles();
+      if (!transferredFiles.length) return;
+      void addFiles(transferredFiles);
+      // A pending upload is deliberately transient and consumed once on arrival from Home.
+    }, 0);
+    return () => {
+      closed = true;
+      window.clearTimeout(timer);
+    };
+  }, [hydrated, consumePendingUploadFiles]);
 
   // Clear temporary order state when leaving the New Order flow.
   useEffect(() => {
@@ -1038,7 +1055,8 @@ function OrderPage() {
               ? current.paperTypeId
               : (nextShop.paperTypes.find((paper) => paper.enabled)?.id ?? current.paperTypeId),
             printType:
-              current.printType === "color" && !nextShop.printTypes.color
+              current.printType === "color" &&
+              !nextShop.paperTypes.some((p) => p.enabled && p.colorEnabled)
                 ? "bw"
                 : current.printType,
             side:
@@ -1122,11 +1140,27 @@ function OrderPage() {
 
       const generatedId = `OMX-${Math.floor(1000 + Math.random() * 9000)}`;
 
+      // Resolve the customer's identity from the most authoritative source so
+      // the stored order always carries the real name/phone (never empty).
+      let customerName = profile.name?.trim() || session?.name?.trim() || "";
+      let customerPhone = profile.phone?.trim() || session?.phone?.trim() || "";
+      if ((!customerName || !customerPhone) && session?.accountId) {
+        try {
+          const live = await getUserProfile(session.accountId);
+          if (live) {
+            customerName = customerName || live.name?.trim() || "";
+            customerPhone = customerPhone || live.phone?.trim() || "";
+          }
+        } catch {
+          // Profile lookup is best-effort; the session values above still apply.
+        }
+      }
+
       const order: Order = {
         id: generatedId,
         customerId: session?.accountId || `cust-${Date.now()}`,
-        customerName: profile.name,
-        customerPhone: profile.phone,
+        customerName: customerName || "Customer",
+        customerPhone: customerPhone,
         shopId: shop.id,
         shopName: shop.name,
         documents: finalDocs,
@@ -1214,9 +1248,10 @@ function OrderPage() {
                       onFilesSelected={(files) => {
                         if (session?.role !== "customer") {
                           setAuthDialogOpen(true);
-                          return;
+                          return false;
                         }
                         void addFiles(files);
+                        return true;
                       }}
                       onFilesRemoved={() => {
                         // Clean up cache for all documents being removed.
@@ -1225,6 +1260,7 @@ function OrderPage() {
                         }
                         setDocs([]);
                         setUploadedFiles({});
+                        setUploadingNames([]);
                         setActiveDocumentId(null);
                       }}
                       fileNames={docs.map((d) => d.name)}
@@ -1269,19 +1305,19 @@ function OrderPage() {
                         onPreview={() => setPreviewDocumentId(document.id)}
                         onRemove={() => {
                           removeCachedFile(document.id);
-                          setDocs((all) => {
-                            const next = all.filter((item) => item.id !== document.id);
-                            setActiveDocumentId((current) =>
-                              current === document.id
-                                ? (next[next.length - 1]?.id ?? null)
-                                : current,
-                            );
-                            return next;
-                          });
+                          setDocs((all) => all.filter((item) => item.id !== document.id));
+                          setActiveDocumentId((current) =>
+                            current === document.id
+                              ? (docs.filter((item) => item.id !== document.id).at(-1)?.id ?? null)
+                              : current,
+                          );
                           setUploadedFiles((all) => {
                             const { [document.id]: _removed, ...rest } = all;
                             return rest;
                           });
+                          setUploadingNames((names) =>
+                            names.filter((name) => name !== document.name),
+                          );
                         }}
                       />
                     ))}
@@ -1524,10 +1560,14 @@ function OrderPage() {
                                 {/* Row 2: Address */}
                                 <div className="mt-1.5 flex items-center justify-between gap-3">
                                   <p className="mt-1.5 text-xs text-muted-foreground">
-                                    {s.address}
+                                    {formatShopAddress(s) || "Address not set"}
                                   </p>
 
-                                  <p className="text-xs text-muted-foreground">{s.hours}</p>
+                                  <p className="shrink-0 text-xs text-muted-foreground">
+                                    {s.openingTime && s.closingTime
+                                      ? `${formatTime12h(s.openingTime)}–${formatTime12h(s.closingTime)}`
+                                      : s.hours}
+                                  </p>
                                 </div>
 
                                 {/* Row 3: Rating + Fulfilment */}
@@ -1539,7 +1579,9 @@ function OrderPage() {
                                     </span>
                                   </div>
                                   <span className="shrink-0 text-sm font-semibold">
-                                    Total Amount : {inr(shopTotal)}
+                                    {shopTotal > 0
+                                      ? `Total Amount : ${inr(shopTotal)}`
+                                      : "Price on request"}
                                   </span>
                                 </div>
 
@@ -1574,7 +1616,7 @@ function OrderPage() {
                 if (!open && step === 2) setStep(1);
               }}
             >
-              <DialogContent className="max-h-[200vh] py-15 overflow-y-auto sm:max-w-2xl">
+              <DialogContent className="max-h-screen py-15 overflow-y-auto sm:max-w-2xl">
                 <DialogHeader>
                   <DialogTitle>How would you like to receive your order?</DialogTitle>
                   <DialogDescription>{shop.name}</DialogDescription>
@@ -1768,13 +1810,13 @@ function OrderPage() {
                       <StoreIcon className="h-4 w-4 text-primary" /> {shop.name}
                     </p>
                     <p className="mt-2 inline-flex items-start gap-2 text-sm text-muted-foreground">
-                      <MapPin className="mt-0.5 h-4 w-4 shrink-0" /> {shop.address}
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0" /> {formatShopAddress(shop)}
                     </p>
                     <p className="mt-2 inline-flex items-center gap-2 text-sm text-muted-foreground">
                       <Phone className="h-4 w-4" /> {shop.phone}
                     </p>
                     <p className="mt-2 inline-flex items-center gap-2 text-sm text-muted-foreground">
-                      <Clock className="h-4 w-4" /> {shop.hours}
+                      <Clock className="h-4 w-4" /> {formatTime12h(shop.openingTime ?? "")} - {formatTime12h(shop.closingTime ?? "")}
                     </p>
                   </div>
                 </div>
@@ -2051,11 +2093,13 @@ function OrderPage() {
                   }
                   account = created;
                 }
+                await healAccountIdentity(account.id, user);
+                const sessionName = account.name?.trim() || user.name;
                 signIn({
                   accountId: account.id,
                   role: "customer",
                   email: account.email,
-                  name: user.name,
+                  name: sessionName,
                   phone: account.phone,
                   registrationStatus: account.registrationStatus,
                   accountStatus: account.accountStatus,
@@ -2066,7 +2110,7 @@ function OrderPage() {
                     accountId: account.id,
                     role: "customer",
                     email: account.email,
-                    name: user.name,
+                    name: sessionName,
                     phone: account.phone,
                     registrationStatus: "complete",
                     accountStatus: account.accountStatus,

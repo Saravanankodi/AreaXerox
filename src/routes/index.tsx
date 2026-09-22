@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useStore } from "@/lib/store";
-import { useAuth } from "@/lib/auth";
+import { useAuth, healAccountIdentity } from "@/lib/auth";
 import { useAppPlatform } from "@/lib/platform";
 import { DocumentUploadCard } from "@/components/home/DocumentUploadCard";
 import { signInWithGoogle } from "@/lib/auth-google";
@@ -50,12 +50,15 @@ function Index() {
           <DocumentUploadCard
             multiple
             onFilesSelected={(files) => {
+              // Queue files so they survive a pending sign-in and are picked up
+              // by the New Order page (which consumes them on mount).
+              setPendingUploadFiles(files);
               if (session?.role !== "customer") {
                 setAuthDialogOpen(true);
-                return;
+                return false;
               }
-              setPendingUploadFiles(files);
               navigate({ to: "/order" });
+              return true;
             }}
           />
         </div>
@@ -135,11 +138,13 @@ function Index() {
               }
               account = created;
             }
+            await healAccountIdentity(account.id, user);
+            const sessionName = account.name?.trim() || user.name;
             signIn({
               accountId: account.id,
               role: "customer",
               email: account.email,
-              name: user.name,
+              name: sessionName,
               phone: account.phone,
               registrationStatus: account.registrationStatus,
               accountStatus: account.accountStatus,
@@ -150,7 +155,7 @@ function Index() {
                 accountId: account.id,
                 role: "customer",
                 email: account.email,
-                name: user.name,
+                name: sessionName,
                 phone: account.phone,
                 registrationStatus: "complete",
                 accountStatus: account.accountStatus,
