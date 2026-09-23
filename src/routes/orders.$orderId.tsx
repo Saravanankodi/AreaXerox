@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { OrderTimeline } from "@/components/OrderTimeline";
 import { ReviewCard } from "@/components/ReviewCard";
 import { PaymentBadge, StatusBadge } from "@/components/StatusBadge";
+import { OnlinePaymentState } from "@/components/OnlinePaymentState";
+import { PayNowCard } from "@/components/PayNowCard";
 import { useStore } from "@/lib/store";
 import { calculateDocumentPrices, inr } from "@/lib/pricing";
 import { customerStatusCopy, fulfillmentLabel } from "@/lib/labels";
@@ -101,6 +103,7 @@ function OrderDetail() {
           <div className="flex flex-wrap gap-2">
             <StatusBadge status={order.status} />
             <PaymentBadge status={order.paymentStatus} />
+            <OnlinePaymentState order={order} />
           </div>
         </div>
 
@@ -224,6 +227,8 @@ function OrderDetail() {
           </div>
 
           <aside className="space-y-6 lg:sticky lg:top-24 lg:self-start">
+            <PayNowCard order={order} />
+
             <div className="card-surface p-5">
               <h2 className="text-base font-semibold">File costs</h2>
               <div className="mt-4 space-y-4 text-sm">

@@ -1232,7 +1232,7 @@ function OrderPage() {
         <div className={cn("mt-6 grid gap-6", step === 1 && "md:grid-cols-[1fr_340px]")}>
           <div className="space-y-4">
             {step === 0 && (
-              <section className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+              <section className="max-w-screen grid min-w-0 gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
                 <div
                   className={cn(
                     "md:sticky md:top-6 md:self-start",

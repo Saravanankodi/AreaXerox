@@ -2,6 +2,8 @@ import { createFileRoute, Link } from "@/lib/navigation";
 import { CheckCircle2, Home, Package } from "lucide-react";
 import { CustomerShell } from "@/components/layout/CustomerShell";
 import { Button } from "@/components/ui/button";
+import { OnlinePaymentState } from "@/components/OnlinePaymentState";
+import { PayNowCard } from "@/components/PayNowCard";
 import { useStore } from "@/lib/store";
 import { inr } from "@/lib/pricing";
 
@@ -57,22 +59,29 @@ function OrderConfirmation() {
             your order. You'll see live updates as they print it.
           </p>
 
-          <div className="mx-auto mt-8 w-full max-w-xs space-y-3 rounded-xl border bg-card px-5 py-4 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Order ID</span>
-              <span className="font-semibold">{order.id}</span>
+<div className="mx-auto mt-8 w-full max-w-xs space-y-3 rounded-xl border bg-card px-5 py-4 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Order ID</span>
+                <span className="font-semibold">{order.id}</span>
+              </div>
+              <div className="border-t border-border" />
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Paid now</span>
+                <span className="font-semibold">{inr(order.amountPaid)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Balance</span>
+                <span className="font-semibold">{inr(order.balance)}</span>
+              </div>
             </div>
-            <div className="border-t border-border" />
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Paid now</span>
-              <span className="font-semibold">{inr(order.amountPaid)}</span>
+
+            <div className="mx-auto mt-4 flex max-w-xs justify-center">
+              <OnlinePaymentState order={order} />
             </div>
-            <div className="border-t border-border" />
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Balance</span>
-              <span className="font-semibold">{inr(order.balance)}</span>
+
+            <div className="mx-auto mt-4 w-full max-w-sm">
+              <PayNowCard order={order} />
             </div>
-          </div>
 
           <div className="mt-8 flex flex-col gap-3">
             <Link to="/orders/$orderId" params={{ orderId: order.id }}>

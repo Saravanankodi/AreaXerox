@@ -11,6 +11,7 @@ import {
   Lock,
   ArrowRight,
   Info,
+  Wallet,
 } from "lucide-react";
 import { ShopShell } from "@/components/layout/ShopShell";
 import { Button } from "@/components/ui/button";
@@ -386,6 +387,43 @@ function ShopDashboard() {
           </div>
         </>
       )}
+
+      {/* Razorpay Payouts banner */}
+      {isApproved &&
+        (activeShop.razorpayOnboardingStatus === "activated" ? (
+          <div className="mb-6 flex items-start justify-between gap-4 rounded-lg border border-success/25 bg-success-light px-4 py-3">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+              <div>
+                <p className="text-sm font-semibold text-success">Automated payouts active</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Your share of online orders is transferred to your linked Razorpay account.
+                </p>
+              </div>
+            </div>
+            <Link to="/shop/settings" className="shrink-0 text-xs font-medium text-primary hover:underline">
+              Manage
+            </Link>
+          </div>
+        ) : (
+          <div className="mb-6 flex items-center justify-between gap-4 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+            <div className="flex items-start gap-3">
+              <Wallet className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <div>
+                <p className="text-sm font-semibold">Collect online payments automatically</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Link your bank account via Razorpay to get paid out for every online order —
+                  no manual settlement needed.
+                </p>
+              </div>
+            </div>
+            <Link to="/shop/settings" className="shrink-0">
+              <Button size="sm" variant="outline" className="whitespace-nowrap">
+                Set up payouts
+              </Button>
+            </Link>
+          </div>
+        ))}
 
       {/* Stats */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">

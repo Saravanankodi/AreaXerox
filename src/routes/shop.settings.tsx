@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { ShopShell } from "@/components/layout/ShopShell";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { PayoutsManager } from "@/components/PayoutsManager";
 import { useStore } from "@/lib/store";
 import { useMyShop } from "@/lib/useMyShop";
 
@@ -95,6 +96,10 @@ function ShopSettings() {
             ))}
           </div>
         </div>
+      </div>
+
+      <div className="mt-6">
+        {shop ? <PayoutsManager shop={shop} /> : null}
       </div>
     </ShopShell>
   );

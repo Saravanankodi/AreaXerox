@@ -3,29 +3,62 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
-    function isAuthenticated() {
-      return request.auth != null;
-    }
+// Helper functions
+function isAuthenticated() {
+  return request.auth != null;
+}
 
-    // Users Collection
-    match /users/{userId} {
-      allow read, write: if true;
-      
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
+// Razorpay-owned fields on Shops must never be modified from the client.
+function isShopRazorpayDataInvariant() {
+  return request.resource.data.razorpayAccountId == resource.data.razorpayAccountId
+    && request.resource.data.razorpayStakeholderId == resource.data.razorpayStakeholderId
+    && request.resource.data.razorpayProductId == resource.data.razorpayProductId
+    && request.resource.data.razorpayOnboardingStatus == resource.data.razorpayOnboardingStatus
+    && request.resource.data.payoutEnabled == resource.data.payoutEnabled
+    && request.resource.data.razorpayRequirements == resource.data.razorpayRequirements;
+}
 
-    // Shops Collection
-    match /shops/{shopId} {
-      allow read, write: if true;
-    }
+// Razorpay-owned fields on Orders must never be modified from the client.
+function isOrderRazorpayDataInvariant() {
+  return request.resource.data.razorpayOrderId == resource.data.razorpayOrderId
+    && request.resource.data.razorpayPaymentId == resource.data.razorpayPaymentId
+    && request.resource.data.razorpaySignature == resource.data.razorpaySignature
+    && request.resource.data.settlementStatus == resource.data.settlementStatus
+    && request.resource.data.razorpayTransferIds == resource.data.razorpayTransferIds
+    && request.resource.data.razorpayPayoutStatus == resource.data.razorpayPayoutStatus;
+}
 
-    // Orders Collection
-    match /orders/{orderId} {
-      allow read, write: if true;
-    }
+// Users Collection
+match /users/{userId} {
+  allow read, write: if true;
+  
+  match /{document=**} {
+    allow read, write: if true;
+  }
+}
+
+// Shops Collection
+match /shops/{shopId} {
+  allow read: if true;
+  allow create: if isAuthenticated();
+  // Preserve current open behavior for shop edits, but forbid clients from
+  // forging Razorpay state. Admin SDK / webhooks bypass rules entirely.
+  allow update: if isAuthenticated() && isShopRazorpayDataInvariant();
+  allow delete: if false;
+
+  match /{document=**} {
+    allow read: if true;
+    allow write: if isAuthenticated() && isShopRazorpayDataInvariant();
+  }
+}
+
+// Orders Collection
+match /orders/{orderId} {
+  allow read: if true;
+  allow create: if isAuthenticated();
+  allow update: if isAuthenticated() && isOrderRazorpayDataInvariant();
+  allow delete: if false;
+}
 
     // Shop Applications
     match /shopApplications/{applicationId} {
