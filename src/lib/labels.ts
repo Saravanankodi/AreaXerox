@@ -39,6 +39,7 @@ export function statusFlow(fulfillment: Fulfillment): OrderStatus[] {
         "READY_DELIVERY",
         "OUT_FOR_DELIVERY",
         "DELIVERED",
+        "COMPLETED",
       ];
 }
 

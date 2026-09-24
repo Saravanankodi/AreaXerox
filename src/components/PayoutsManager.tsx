@@ -52,23 +52,13 @@ const STATUS_COPY: Record<string, string> = {
   failed: "Account activation failed. Please review your details and retry.",
 };
 
-export function PayoutsManager({ shop }: { shop: Shop }) {
-  const [categories, setCategories] = useState<CategoryOption[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+const PAN_PATTERN = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+const IFSC_PATTERN = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
-  const status = (shop.razorpayOnboardingStatus ?? "not_started") as
-    | RazorpayOnboardingStatus
-    | "not_started";
-  const active = status === "activated";
+type PayoutForm = ReturnType<typeof buildInitialForm>;
 
-  useEffect(() => {
-    fetchRazorpayCategories()
-      .then((res) => setCategories(res.categories))
-      .catch(() => setCategories([]));
-  }, []);
-
-  const [form, setForm] = useState(() => ({
+function buildInitialForm(shop: Shop) {
+  return {
     email: shop.email ?? "",
     phone: shop.phone ?? "",
     contactName: shop.ownerName ?? "",
@@ -91,7 +81,29 @@ export function PayoutsManager({ shop }: { shop: Shop }) {
     accountNumber: "",
     ifscCode: "",
     beneficiaryName: shop.name ?? "",
-  }));
+  };
+}
+
+export function PayoutsManager({ shop }: { shop: Shop }) {
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const status = (shop.razorpayOnboardingStatus ?? "not_started") as
+    | RazorpayOnboardingStatus
+    | "not_started";
+  const active = status === "activated";
+
+  useEffect(() => {
+    fetchRazorpayCategories()
+      .then((res) => setCategories(res.categories))
+      .catch(() => setCategories([]));
+  }, []);
+
+  const [form, setForm] = useState<PayoutForm>(() => buildInitialForm(shop));
+
+  // The parent renders us with `key={shop.id}`, so the form always seeds from
+  // the current shop and resets when a different shop is viewed.
 
   const set = (key: keyof typeof form) => (value: string) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -117,6 +129,30 @@ export function PayoutsManager({ shop }: { shop: Shop }) {
     if (submitting) return;
     if (!form.pan || !form.ownerPan || !form.accountNumber || !form.ifscCode) {
       toast.error("Business PAN, owner PAN and settlement bank details are required.");
+      return;
+    }
+    if (!form.email.trim() || !form.phone.trim()) {
+      toast.error("Contact email and phone are required.");
+      return;
+    }
+    if (!PAN_PATTERN.test(form.pan.trim().toUpperCase())) {
+      toast.error("Business PAN must be in the format ABCDE1234F.");
+      return;
+    }
+    if (!PAN_PATTERN.test(form.ownerPan.trim().toUpperCase())) {
+      toast.error("Owner PAN must be in the format ABCDE1234F.");
+      return;
+    }
+    if (!IFSC_PATTERN.test(form.ifscCode.trim().toUpperCase())) {
+      toast.error("IFSC code must be in the format HDFC0001234.");
+      return;
+    }
+    if (!/^\d{9,18}$/.test(form.accountNumber.trim())) {
+      toast.error("Account number must be 9–18 digits.");
+      return;
+    }
+    if (form.gst.trim() && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(form.gst.trim().toUpperCase())) {
+      toast.error("GST number is not in a valid format.");
       return;
     }
     if (!form.category || !form.subcategory) {
@@ -380,7 +416,7 @@ export function PayoutsManager({ shop }: { shop: Shop }) {
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
               Your payout share is transferred to this account after each captured payment.
-              Bank details are sent only to Razorpay and protected by Firestore security rules.
+              These details are sent directly to Razorpay and are shown only to you.
             </p>
           </section>
 

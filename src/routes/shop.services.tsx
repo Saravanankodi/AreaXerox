@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@/lib/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Lock, ArrowRight, Save, LoaderCircle } from "lucide-react";
 import { ShopShell } from "@/components/layout/ShopShell";
@@ -46,6 +46,7 @@ function ShopServices() {
 
   const [newPaperName, setNewPaperName] = useState("");
   const [newPaperPrice, setNewPaperPrice] = useState("");
+  const [newPaperColorPrice, setNewPaperColorPrice] = useState("");
   const [showNewPaper, setShowNewPaper] = useState(false);
 
   const [newBindingName, setNewBindingName] = useState("");
@@ -53,6 +54,18 @@ function ShopServices() {
   const [showNewBinding, setShowNewBinding] = useState(false);
 
   const [saving, setSaving] = useState(false);
+
+  // Re-sync drafts when the real shop arrives asynchronously (e.g. navigating
+  // straight here before the own-shop listener resolves). Edits already in
+  // progress are only ever preserved/overwritten when the shop id changes.
+  const syncedShopIdRef = useRef(shop.id);
+  useEffect(() => {
+    if (syncedShopIdRef.current === shop.id) return;
+    syncedShopIdRef.current = shop.id;
+    setDraftPaperTypes(shop.paperTypes);
+    setDraftBinding(shop.binding);
+    setDraftAdditional(shop.additional);
+  }, [shop]);
 
   const hasChanges =
     JSON.stringify(draftPaperTypes) !== JSON.stringify(shop.paperTypes) ||
@@ -95,13 +108,16 @@ function ShopServices() {
 
   function addCustomPaper() {
     const name = newPaperName.trim();
-    const price = Number(newPaperPrice) || 0;
+    const bw = Number(newPaperPrice);
+    const color = Number(newPaperColorPrice);
+    const bwPrice = Number.isFinite(bw) && bw >= 0 ? bw : 0;
+    const colorPrice = Number.isFinite(color) && color >= 0 ? color : 0;
     if (!name) {
       toast.error("Enter a paper type name");
       return;
     }
-    if (price < 0) {
-      toast.error("Price must be a non-negative amount");
+    if (bw < 0 || color < 0) {
+      toast.error("Prices must be non-negative amounts");
       return;
     }
     const id = `custom-paper-${Date.now()}`;
@@ -110,15 +126,16 @@ function ShopServices() {
       name,
       enabled: true,
       bwEnabled: true,
-      bwPrice: price,
+      bwPrice,
       colorEnabled: true,
-      colorPrice: price,
+      colorPrice,
       single: true,
       double: true,
     };
     setDraftPaperTypes((prev) => [...prev, newType]);
     setNewPaperName("");
     setNewPaperPrice("");
+    setNewPaperColorPrice("");
     setShowNewPaper(false);
     toast.success(`${name} added (unsaved)`);
   }
@@ -213,7 +230,7 @@ function ShopServices() {
                       onChange={(e) =>
                         setDraftPaperTypes((prev) =>
                           prev.map((x) =>
-                            x.id === p.id ? { ...x, bwPrice: Number(e.target.value) || 0 } : x,
+                            x.id === p.id ? { ...x, bwPrice: Math.max(0, Number(e.target.value) || 0) } : x,
                           ),
                         )
                       }
@@ -228,7 +245,7 @@ function ShopServices() {
                       onChange={(e) =>
                         setDraftPaperTypes((prev) =>
                           prev.map((x) =>
-                            x.id === p.id ? { ...x, colorPrice: Number(e.target.value) || 0 } : x,
+                            x.id === p.id ? { ...x, colorPrice: Math.max(0, Number(e.target.value) || 0) } : x,
                           ),
                         )
                       }
@@ -256,19 +273,33 @@ function ShopServices() {
                     onChange={(e) => setNewPaperName(e.target.value)}
                   />
                 </div>
-                <div>
-                  <Label htmlFor="newPaperPrice">B/W Price (per page)</Label>
-                  <Input
-                    id="newPaperPrice"
-                    type="number"
-                    className="mt-1.5"
-                    value={newPaperPrice}
-                    onChange={(e) => setNewPaperPrice(e.target.value)}
-                  />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="newPaperPrice">B/W Price (per page)</Label>
+                    <Input
+                      id="newPaperPrice"
+                      type="number"
+                      min="0"
+                      className="mt-1.5"
+                      value={newPaperPrice}
+                      onChange={(e) => setNewPaperPrice(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="newPaperColorPrice">Colour Price (per page)</Label>
+                    <Input
+                      id="newPaperColorPrice"
+                      type="number"
+                      min="0"
+                      className="mt-1.5"
+                      value={newPaperColorPrice}
+                      onChange={(e) => setNewPaperColorPrice(e.target.value)}
+                    />
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" onClick={addCustomPaper}>Add</Button>
-                  <Button size="sm" variant="outline" onClick={() => { setShowNewPaper(false); setNewPaperName(""); setNewPaperPrice(""); }}>Cancel</Button>
+                  <Button size="sm" variant="outline" onClick={() => { setShowNewPaper(false); setNewPaperName(""); setNewPaperPrice(""); setNewPaperColorPrice(""); }}>Cancel</Button>
                 </div>
               </div>
             )}
@@ -303,12 +334,13 @@ function ShopServices() {
                   </div>
                   <Input
                     type="number"
+                    min="0"
                     className="ml-auto w-24"
                     value={b.price}
                     onChange={(e) =>
                       setDraftBinding((prev) =>
                         prev.map((x) =>
-                          x.id === b.id ? { ...x, price: Number(e.target.value) || 0 } : x,
+                          x.id === b.id ? { ...x, price: Math.max(0, Number(e.target.value) || 0) } : x,
                         ),
                       )
                     }
@@ -335,12 +367,13 @@ function ShopServices() {
                   </div>
                   <Input
                     type="number"
+                    min="0"
                     className="ml-auto w-24"
                     value={a.price}
                     onChange={(e) =>
                       setDraftAdditional((prev) =>
                         prev.map((x) =>
-                          x.id === a.id ? { ...x, price: Number(e.target.value) || 0 } : x,
+                          x.id === a.id ? { ...x, price: Math.max(0, Number(e.target.value) || 0) } : x,
                         ),
                       )
                     }

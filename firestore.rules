@@ -8,24 +8,33 @@ function isAuthenticated() {
   return request.auth != null;
 }
 
+// True when the write does not touch `field`, or leaves the current value
+// untouched. `field in resource.data` guards are REQUIRED because comparing two
+// missing fields (`undefined == undefined`) evaluates to false in rules and
+// would deny every unrelated update.
+function isFieldInvariant(field) {
+  return !(field in request.resource.data)
+    || request.resource.data[field] == resource.data[field];
+}
+
 // Razorpay-owned fields on Shops must never be modified from the client.
 function isShopRazorpayDataInvariant() {
-  return request.resource.data.razorpayAccountId == resource.data.razorpayAccountId
-    && request.resource.data.razorpayStakeholderId == resource.data.razorpayStakeholderId
-    && request.resource.data.razorpayProductId == resource.data.razorpayProductId
-    && request.resource.data.razorpayOnboardingStatus == resource.data.razorpayOnboardingStatus
-    && request.resource.data.payoutEnabled == resource.data.payoutEnabled
-    && request.resource.data.razorpayRequirements == resource.data.razorpayRequirements;
+  return isFieldInvariant("razorpayAccountId")
+    && isFieldInvariant("razorpayStakeholderId")
+    && isFieldInvariant("razorpayProductId")
+    && isFieldInvariant("razorpayOnboardingStatus")
+    && isFieldInvariant("payoutEnabled")
+    && isFieldInvariant("razorpayRequirements");
 }
 
 // Razorpay-owned fields on Orders must never be modified from the client.
 function isOrderRazorpayDataInvariant() {
-  return request.resource.data.razorpayOrderId == resource.data.razorpayOrderId
-    && request.resource.data.razorpayPaymentId == resource.data.razorpayPaymentId
-    && request.resource.data.razorpaySignature == resource.data.razorpaySignature
-    && request.resource.data.settlementStatus == resource.data.settlementStatus
-    && request.resource.data.razorpayTransferIds == resource.data.razorpayTransferIds
-    && request.resource.data.razorpayPayoutStatus == resource.data.razorpayPayoutStatus;
+  return isFieldInvariant("razorpayOrderId")
+    && isFieldInvariant("razorpayPaymentId")
+    && isFieldInvariant("razorpaySignature")
+    && isFieldInvariant("settlementStatus")
+    && isFieldInvariant("razorpayTransferIds")
+    && isFieldInvariant("razorpayPayoutStatus");
 }
 
 // Users Collection
@@ -45,11 +54,6 @@ match /shops/{shopId} {
   // forging Razorpay state. Admin SDK / webhooks bypass rules entirely.
   allow update: if isAuthenticated() && isShopRazorpayDataInvariant();
   allow delete: if false;
-
-  match /{document=**} {
-    allow read: if true;
-    allow write: if isAuthenticated() && isShopRazorpayDataInvariant();
-  }
 }
 
 // Orders Collection
@@ -57,6 +61,14 @@ match /orders/{orderId} {
   allow read: if true;
   allow create: if isAuthenticated();
   allow update: if isAuthenticated() && isOrderRazorpayDataInvariant();
+  allow delete: if false;
+}
+
+// Reviews Collection
+match /reviews/{reviewId} {
+  allow read: if true;
+  allow create: if isAuthenticated();
+  allow update: if isAuthenticated();
   allow delete: if false;
 }
 

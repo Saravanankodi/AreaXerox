@@ -10,6 +10,7 @@ import { inr } from "@/lib/pricing";
 import { fulfillmentLabel } from "@/lib/labels";
 import { createNotification } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
+import type { Order } from "@/types";
 
 export const Route = createFileRoute("/shop/orders")({
   head: () => ({
@@ -26,7 +27,7 @@ export const Route = createFileRoute("/shop/orders")({
   component: ShopOrders,
 });
 
-const TABS = ["New", "In progress", "Completed"] as const;
+const TABS = ["New", "In progress", "Completed", "Rejected"] as const;
 type Tab = (typeof TABS)[number];
 
 const IN_PROGRESS_STATUSES = [
@@ -65,9 +66,56 @@ function ShopOrders() {
   const completedOrders = mine.filter((o) =>
     (COMPLETED_STATUSES as readonly string[]).includes(o.status),
   );
+  const rejectedOrders = mine.filter((o) => o.status === "REJECTED");
 
   const activeList =
-    tab === "New" ? newOrders : tab === "In progress" ? inProgressOrders : completedOrders;
+    tab === "New"
+      ? newOrders
+      : tab === "In progress"
+        ? inProgressOrders
+        : tab === "Completed"
+          ? completedOrders
+          : rejectedOrders;
+
+  function handleReject(o: Order) {
+    if (!window.confirm(`Reject order ${o.id}? This cannot be undone.`)) return;
+    advanceOrder(o.id, "REJECTED")
+      .then(() => {
+        toast.error(`${o.id} rejected`);
+        addNotification(
+          createNotification({
+            recipientId: o.customerId ?? o.customerPhone,
+            recipientRole: "customer",
+            type: "order_rejected",
+            title: "Order Rejected",
+            message: `Your order ${o.id} has been rejected by ${activeShop.name}.`,
+            relatedEntityId: o.id,
+            entityType: "order",
+          }),
+        );
+      })
+      .catch((err) => toast.error(err.message || `Could not reject ${o.id}.`));
+  }
+
+  function handleAccept(o: Order) {
+    advanceOrder(o.id, "ACCEPTED")
+      .then(() => {
+        toast.success(`${o.id} accepted`);
+        addNotification(
+          createNotification({
+            recipientId: o.customerId ?? o.customerPhone,
+            recipientRole: "customer",
+            type: "order_accepted",
+            title: "Order Accepted",
+            message: `Your order ${o.id} has been accepted by ${activeShop.name}.`,
+            relatedEntityId: o.id,
+            entityType: "order",
+          }),
+        );
+        navigate({ to: "/shop/orders/$orderId", params: { orderId: o.id } });
+      })
+      .catch((err) => toast.error(err.message || `Could not accept ${o.id}.`));
+  }
 
   return (
     <ShopShell title="Orders" subtitle="Process print jobs and collect payments.">
@@ -134,42 +182,13 @@ function ShopOrders() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => {
-                            advanceOrder(o.id, "REJECTED");
-                            toast.error(`${o.id} rejected`);
-                            addNotification(
-                              createNotification({
-                                recipientId: o.customerPhone,
-                                recipientRole: "customer",
-                                type: "order_rejected",
-                                title: "Order Rejected",
-                                message: `Your order ${o.id} has been rejected by ${activeShop.name}.`,
-                                relatedEntityId: o.id,
-                                entityType: "order",
-                              }),
-                            );
-                          }}
+                          onClick={() => handleReject(o)}
                         >
                           <XCircle className="h-4 w-4" /> Reject
                         </Button>
                         <Button
                           size="sm"
-                          onClick={() => {
-                            advanceOrder(o.id, "ACCEPTED");
-                            toast.success(`${o.id} accepted`);
-                            addNotification(
-                              createNotification({
-                                recipientId: o.customerPhone,
-                                recipientRole: "customer",
-                                type: "order_accepted",
-                                title: "Order Accepted",
-                                message: `Your order ${o.id} has been accepted by ${activeShop.name}.`,
-                                relatedEntityId: o.id,
-                                entityType: "order",
-                              }),
-                            );
-                            navigate({ to: "/shop/orders/$orderId", params: { orderId: o.id } });
-                          }}
+                          onClick={() => handleAccept(o)}
                         >
                           Accept
                         </Button>
@@ -221,42 +240,13 @@ function ShopOrders() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => {
-                          advanceOrder(o.id, "REJECTED");
-                          toast.error(`${o.id} rejected`);
-                          addNotification(
-                            createNotification({
-                              recipientId: o.customerPhone,
-                              recipientRole: "customer",
-                              type: "order_rejected",
-                              title: "Order Rejected",
-                              message: `Your order ${o.id} has been rejected by ${activeShop.name}.`,
-                              relatedEntityId: o.id,
-                              entityType: "order",
-                            }),
-                          );
-                        }}
+                        onClick={() => handleReject(o)}
                       >
                         <XCircle className="h-4 w-4" /> Reject
                       </Button>
                       <Button
                         size="sm"
-                        onClick={() => {
-                          advanceOrder(o.id, "ACCEPTED");
-                          toast.success(`${o.id} accepted`);
-                          addNotification(
-                            createNotification({
-                              recipientId: o.customerPhone,
-                              recipientRole: "customer",
-                              type: "order_accepted",
-                              title: "Order Accepted",
-                              message: `Your order ${o.id} has been accepted by ${activeShop.name}.`,
-                              relatedEntityId: o.id,
-                              entityType: "order",
-                            }),
-                          );
-                          navigate({ to: "/shop/orders/$orderId", params: { orderId: o.id } });
-                        }}
+                        onClick={() => handleAccept(o)}
                       >
                         Accept
                       </Button>
@@ -286,7 +276,7 @@ function ShopOrders() {
                   </div>
                   <span className="text-lg font-bold whitespace-nowrap">{inr(o.price.total)}</span>
                 </div>
-                <div className=" flex justify-between items-center gap-4 md:gap-6">
+                <div className="flex justify-between items-center gap-4 md:gap-6">
                   <div>
                     {/* File/page info + Pickup/Delivery */}
                     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
@@ -367,11 +357,61 @@ function ShopOrders() {
             );
           })}
 
+        {tab === "Rejected" &&
+          rejectedOrders.map((o) => {
+            const totalPages = o.documents.reduce((s, d) => s + d.pages, 0);
+            return (
+              <div key={o.id} className="card-surface p-5">
+                {/* Header: Order ID + Total Amount */}
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <Link
+                      to="/shop/orders/$orderId"
+                      params={{ orderId: o.id }}
+                      className="text-base font-bold hover:underline"
+                    >
+                      Order #{o.id}
+                    </Link>
+                    <p className="mt-1 text-sm text-muted-foreground">{o.customerName || "Customer"}</p>
+                  </div>
+                  <span className="text-lg font-bold whitespace-nowrap">{inr(o.price.total)}</span>
+                </div>
+                <div className="flex justify-between items-center gap-4 md:gap-6">
+                  <div>
+                    {/* File/page info + Pickup/Delivery */}
+                    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                      <span className="inline-flex items-center gap-1.5">
+                        <FileText className="h-4 w-4" /> {o.documents.length}{" "}
+                        {o.documents.length === 1 ? "file" : "files"} · {totalPages}{" "}
+                        pages
+                      </span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Truck className="h-4 w-4" /> {fulfillmentLabel[o.fulfillment]}
+                      </span>
+                    </div>
+
+                    {/* Date */}
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {new Date(o.createdAt).toLocaleString("en-IN")}
+                    </p>
+                  </div>
+                  {/* Track Order button */}
+                  <Link to="/shop/orders/$orderId" params={{ orderId: o.id }}>
+                    <Button variant="outline" size="sm">
+                      Track Order
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            );
+          })}
+
         {activeList.length === 0 && (
           <div className="card-surface p-10 text-center text-sm text-muted-foreground">
             {tab === "New" && "No new orders to review."}
             {tab === "In progress" && "No orders in progress."}
             {tab === "Completed" && "No completed orders."}
+            {tab === "Rejected" && "No rejected orders."}
           </div>
         )}
       </div>

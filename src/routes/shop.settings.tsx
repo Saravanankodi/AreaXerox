@@ -30,7 +30,9 @@ function ShopSettings() {
   const { updateShop } = useStore();
   const shop = useMyShop();
 
-  const acceptingOrders = shop.acceptingOrders ?? true;
+  // A shop is not open to new orders until it has been approved. Once approved,
+  // absence of the flag means "open" (legacy behaviour).
+  const acceptingOrders = shop.acceptingOrders ?? shop.accountStatus === "active";
   const notifications = shop.settings?.notifications ?? DEFAULT_NOTIFICATIONS;
 
   const setAcceptingOrders = (value: boolean) => {
@@ -99,7 +101,7 @@ function ShopSettings() {
       </div>
 
       <div className="mt-6">
-        {shop ? <PayoutsManager shop={shop} /> : null}
+        {shop ? <PayoutsManager key={shop.id} shop={shop} /> : null}
       </div>
     </ShopShell>
   );

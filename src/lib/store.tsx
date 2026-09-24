@@ -33,9 +33,16 @@ import {
   createFirestoreOrder,
   updateOrderStatusInFirestore,
   listenToAllOrders,
+  collectPartialPaymentInDb,
 } from "@/lib/firestore/orders";
+import {
+  createReviewInDb,
+  listenToReviews,
+  updateReviewReplyInDb,
+} from "@/lib/firestore/reviews";
 import { useAuth } from "@/lib/auth";
 import { collectBalanceInDb } from "@/services/order.service";
+import { nextStatus, orderStatusLabel } from "@/lib/labels";
 import {
   getShopkeeperApplication as fetchShopkeeperApplication,
   submitShopkeeperApplication as submitShopkeeperApplicationToDb,
@@ -87,6 +94,22 @@ const initialState: AppState = {
   shopkeeperProfiles: {},
 };
 
+// Notifications live in localStorage so mutually-sent alerts (e.g. an order
+// accept) survive a page refresh instead of disappearing on reload.
+const NOTIFICATIONS_STORAGE_KEY = "xeroxmate-notifications-v1";
+
+function loadPersistedNotifications(): Notification[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(NOTIFICATIONS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as Notification[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 interface StoreValue extends AppState {
   hydrated: boolean;
   activeShop: Shop;
@@ -121,7 +144,8 @@ interface StoreValue extends AppState {
   markAllNotificationsRead: (recipientId: string) => void;
   getUnreadCount: (recipientId: string) => number;
   cancelOrder: (orderId: string) => boolean;
-  collectOrderPayment: (orderId: string, amount: number) => void;
+  collectOrderPayment: (orderId: string, amount: number, via?: "cash" | "upi" | "card") => void;
+  replyToReview: (reviewId: string, text: string) => void;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -248,6 +272,49 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => unsubscribeOrders();
   }, []);
 
+  // Subscribe to Reviews in Firestore so shopkeepers see persisted customer reviews.
+  useEffect(() => {
+    const unsubscribeReviews = listenToReviews(
+      (firestoreReviews) => {
+        setState((s) => ({ ...s, reviews: firestoreReviews }));
+      },
+      (error) => {
+        console.warn("Reviews listener failed:", error);
+      }
+    );
+    return () => unsubscribeReviews();
+  }, []);
+
+  // Re-hydrate persisted notifications from localStorage (client only).
+  // Scheduled asynchronously (after hydration) to avoid a sync setState in an
+  // effect and to keep server-rendered markup stable.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const persisted = loadPersistedNotifications();
+      if (persisted.length) {
+        setState((s) => {
+          const known = new Set(s.notifications.map((n) => n.id));
+          const fresh = persisted.filter((n) => !known.has(n.id));
+          return fresh.length ? { ...s, notifications: [...fresh, ...s.notifications] } : s;
+        });
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  // Persist every notification change to localStorage.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        NOTIFICATIONS_STORAGE_KEY,
+        JSON.stringify(state.notifications),
+      );
+    } catch {
+      // Storage full / unavailable — notifications remain in-memory only.
+    }
+  }, [state.notifications]);
+
   // Hydrate the current shopkeeper's application (used synchronously during render).
   useEffect(() => {
     if (!session?.accountId) return;
@@ -309,10 +376,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return created;
   }, []);
 
-  const advanceOrder = useCallback(async (orderId: string, status: OrderStatus): Promise<void> => {
-    // Persist status change to Firestore, triggering real-time update listeners
-    await updateOrderStatusInFirestore(orderId, status);
-  }, []);
+  const advanceOrder = useCallback(
+    async (orderId: string, status: OrderStatus): Promise<void> => {
+      const order = state.orders.find((o) => o.id === orderId);
+      if (!order) throw new Error(`Order ${orderId} not found.`);
+
+      if (status === "REJECTED") {
+        if (order.status !== "NEW" && order.status !== "ACCEPTED") {
+          throw new Error(
+            `An order ${orderStatusLabel[order.status].toLowerCase()} can no longer be rejected.`,
+          );
+        }
+      } else {
+        const expected = nextStatus(order.status, order.fulfillment);
+        if (status !== expected) {
+          throw new Error(
+            expected
+              ? `Next step for this order is "${orderStatusLabel[expected]}".`
+              : "This order has already reached the final step.",
+          );
+        }
+      }
+
+      await updateOrderStatusInFirestore(orderId, status);
+    },
+    [state.orders],
+  );
 
   const collectBalance = useCallback((orderId: string, via: "cash" | "upi" | "card") => {
     setState((s) => ({
@@ -459,11 +548,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const addReview = useCallback((review: Review) => {
-    setState((s) => ({
-      ...s,
-      reviews: s.reviews.some((r) => r.id === review.id) ? s.reviews : [review, ...s.reviews],
-    }));
-  }, []);
+      setState((s) => ({
+        ...s,
+        reviews: s.reviews.some((r) => r.id === review.id)
+          ? s.reviews.map((r) => (r.id === review.id ? review : r))
+          : [review, ...s.reviews],
+      }));
+      createReviewInDb(review).catch(console.error);
+    }, []);
 
   const addNotification = useCallback((notification: Notification) => {
     setState((s) => ({
@@ -517,28 +609,45 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const collectOrderPayment = useCallback(
-    (orderId: string, amount: number) => {
+    (orderId: string, amount: number, via: "cash" | "upi" | "card" = "cash") => {
+      const order = state.orders.find((o) => o.id === orderId);
+      if (!order || order.balance <= 0) return;
+      const remaining = Math.max(0, order.balance - amount);
+
       setState((s) => ({
         ...s,
         orders: s.orders.map((o) => {
-          if (o.id !== orderId || o.balance <= 0) return o;
-          const remaining = o.balance - amount;
+          if (o.id !== orderId) return o;
           return {
             ...o,
             amountPaid: Math.min(o.price.total, o.amountPaid + amount),
-            balance: Math.max(0, remaining),
+            balance: remaining,
             paymentStatus: remaining <= 0 ? "paid" : "partial",
+            balanceCollectedVia: via,
             updatedAt: new Date().toISOString(),
           };
         }),
       }));
-      const order = state.orders.find((o) => o.id === orderId);
-      if (order && order.balance - amount <= 0) {
-        collectBalanceInDb(orderId, "cash").catch(console.error);
+
+      collectPartialPaymentInDb(orderId, amount, via).catch(console.error);
+      if (remaining <= 0) {
+        collectBalanceInDb(orderId, via).catch(console.error);
       }
     },
     [state.orders],
   );
+
+  const replyToReview = useCallback((reviewId: string, text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setState((s) => ({
+      ...s,
+      reviews: s.reviews.map((r) =>
+        r.id === reviewId ? { ...r, reply: trimmed, updatedAt: new Date().toISOString() } : r,
+      ),
+    }));
+    updateReviewReplyInDb(reviewId, trimmed).catch(console.error);
+  }, []);
 
   const saveShopkeeperProfile = useCallback((accountId: string, profile: ShopkeeperProfile) => {
     setState((s) => ({
@@ -635,6 +744,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       getUnreadCount,
       cancelOrder,
       collectOrderPayment,
+      replyToReview,
     }),
     [
       state,
@@ -672,6 +782,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       getUnreadCount,
       cancelOrder,
       collectOrderPayment,
+      replyToReview,
     ],
   );
 

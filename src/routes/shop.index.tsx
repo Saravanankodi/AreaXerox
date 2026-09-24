@@ -24,6 +24,20 @@ import { getShopOnboardingState } from "@/lib/onboarding";
 import { cn } from "@/lib/utils";
 import type { Shop } from "@/types";
 
+const DAY_SEQUENCE = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function buildWorkingDays(from?: string, to?: string): string[] {
+  if (!from || !to) return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const start = DAY_SEQUENCE.indexOf(from);
+  const end = DAY_SEQUENCE.indexOf(to);
+  if (start < 0 || end < 0) return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  if (end >= start) {
+    return DAY_SEQUENCE.slice(start, end + 1).map((d) => d.slice(0, 3));
+  }
+  // Wrap around (e.g. Sunday to Saturday not typical, but just in case)
+  return [...DAY_SEQUENCE.slice(start), ...DAY_SEQUENCE.slice(0, end + 1)].map((d) => d.slice(0, 3));
+}
+
 export const Route = createFileRoute("/shop/")({
   head: () => ({
     meta: [
@@ -118,16 +132,18 @@ function ShopDashboard() {
         accountId: session.accountId,
         username: session.email.split("@")[0] ?? "shopkeeper",
         ownerName: activeShop.ownerName,
-        phone: activeShop.phone,
+        phone: activeShop.ownerPhone ?? activeShop.phone,
         alternatePhone: "",
       },
       shopName: activeShop.name,
-      shopAddress: activeShop.addressLine1 ?? activeShop.address,
-      area: "",
-      city: "",
-      state: "",
-      pincode: "",
-      shopDescription: "",
+      shopAddress: activeShop.addressLine1
+        ? [activeShop.addressLine1, activeShop.addressLine2].filter(Boolean).join(", ")
+        : activeShop.address,
+      area: activeShop.addressLine2 ?? "",
+      city: activeShop.city ?? "",
+      state: activeShop.state ?? "",
+      pincode: activeShop.zip ?? "",
+      shopDescription: activeShop.description ?? "",
       shopImages: [],
       services: {
         a4: activeShop.paperTypes.some((p) => p.id === "a4" && p.enabled),
@@ -141,7 +157,7 @@ function ShopDashboard() {
         deliveryFee: activeShop.delivery.fee,
         businessHoursFrom: activeShop.openingTime ?? "09:00",
         businessHoursTo: activeShop.closingTime ?? "21:00",
-        workingDays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+        workingDays: buildWorkingDays(activeShop.workingDaysFrom, activeShop.workingDaysTo),
       },
       accountStatus: "pending" as const,
       createdAt: application?.createdAt ?? now,
@@ -160,7 +176,7 @@ function ShopDashboard() {
       if (ta !== tb) return ta - tb;
       return a.id.localeCompare(b.id);
     });
-  const revenue = mine.reduce((s, o) => s + o.amountPaid, 0);
+  const revenue = mine.reduce((s, o) => s + (o.amountPaid ?? 0), 0);
   const pendingBalance = mine.reduce((s, o) => s + o.balance, 0);
 
   const stats = [
@@ -185,7 +201,7 @@ function ShopDashboard() {
     }
   }
 
-  const isApproved = !activeShop.accountStatus || activeShop.accountStatus === "active";
+  const isApproved = activeShop.accountStatus === "active";
   const isSetupComplete = onboarding.profileComplete && onboarding.servicesComplete && isApproved;
 
   return (

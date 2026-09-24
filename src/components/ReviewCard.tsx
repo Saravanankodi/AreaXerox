@@ -9,7 +9,7 @@ import { createNotification } from "@/lib/notifications";
 import type { Order, Review } from "@/types";
 
 export function ReviewCard({ order }: { order: Order }) {
-  const { reviews, addReview, addNotification } = useStore();
+  const { reviews, shops, addReview, addNotification } = useStore();
   const { session } = useAuth();
 
   const existingReview = reviews.find(
@@ -52,9 +52,10 @@ export function ReviewCard({ order }: { order: Order }) {
         createdAt: new Date().toISOString(),
       };
       addReview(review);
+      const shop = shops.find((s) => s.id === order.shopId);
       addNotification(
         createNotification({
-          recipientId: order.shopId,
+          recipientId: shop?.ownerAccountId ?? shop?.id ?? order.shopId,
           recipientRole: "shopkeeper",
           type: "review_received",
           title: "New Review Received",
@@ -152,7 +153,7 @@ function SubmittedReview({ review }: { review: Review }) {
         ))}
       </div>
       {review.description && (
-        <p className="mt-2 text-sm text-muted-foreground">"{review.description}"</p>
+        <p className="mt-2 text-sm text-muted-foreground">&ldquo;{review.description}&rdquo;</p>
       )}
       {!review.description && (
         <p className="mt-2 text-sm text-muted-foreground italic">No additional comment.</p>

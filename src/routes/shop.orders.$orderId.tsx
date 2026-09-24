@@ -18,7 +18,7 @@ import { useStore } from "@/lib/store";
 import { createNotification } from "@/lib/notifications";
 import { fulfillmentLabel, nextActionLabel, statusFlow } from "@/lib/labels";
 import { cn } from "@/lib/utils";
-import type { DocumentFile, OrderStatus } from "@/types";
+import type { DocumentFile, Order, OrderStatus } from "@/types";
 
 export const Route = createFileRoute("/shop/orders/$orderId")({
   head: () => ({
@@ -76,6 +76,51 @@ function ShopOrderDetail() {
   const shop = shops.find((s) => s.id === order.shopId);
   const flow = statusFlow(order.fulfillment);
   const currentIndex = flow.indexOf(order.status);
+
+  // Explicitly-typed alias so the async handler below narrows the order.
+  const currentOrder: Order = order;
+
+  async function handleAdvance(status: OrderStatus, label: string) {
+    if (status === "REJECTED" && !window.confirm(`Reject order ${currentOrder.id}? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await advanceOrder(currentOrder.id, status);
+      toast.success(`${currentOrder.id} → ${label}`);
+
+      if (status === "REJECTED") {
+        toast.error(`${currentOrder.id} rejected`);
+      }
+
+      const statusMessages: Record<OrderStatus, string> = {
+        ACCEPTED: "has been accepted",
+        PRINTING: "is now being printed",
+        FINISHING: "is being finished",
+        READY_PICKUP: "is ready for pickup",
+        READY_DELIVERY: "is ready for delivery",
+        OUT_FOR_DELIVERY: "is out for delivery",
+        DELIVERED: "has been delivered",
+        COMPLETED: "has been completed",
+        NEW: "has been placed",
+        REJECTED: "has been rejected",
+      };
+
+      const notifType = status === "REJECTED" ? "order_rejected" : "order_status_changed";
+      addNotification(
+        createNotification({
+          recipientId: currentOrder.customerId ?? currentOrder.customerPhone,
+          recipientRole: "customer",
+          type: notifType,
+          title: status === "REJECTED" ? "Order Rejected" : `Order ${label}`,
+          message: `Your order ${currentOrder.id} ${statusMessages[status] ?? `moved to ${status}`} by ${activeShop.name}.`,
+          relatedEntityId: currentOrder.id,
+          entityType: "order",
+        }),
+      );
+    } catch (error) {
+      toast.error((error as Error).message || `Could not update order ${currentOrder.id}.`);
+    }
+  }
 
   function isFileUsable(doc: DocumentFile) {
     // Blob URLs are session-local (only the machine that uploaded can open them).
@@ -366,35 +411,7 @@ function ShopOrderDetail() {
                     <button
                       key={status}
                       type="button"
-                      onClick={() => {
-                        advanceOrder(order.id, status);
-                        toast.success(`${order.id} → ${label}`);
-
-                        const statusMessages: Record<OrderStatus, string> = {
-                          ACCEPTED: "has been accepted",
-                          PRINTING: "is now being printed",
-                          FINISHING: "is being finished",
-                          READY_PICKUP: "is ready for pickup",
-                          READY_DELIVERY: "is ready for delivery",
-                          OUT_FOR_DELIVERY: "is out for delivery",
-                          DELIVERED: "has been delivered",
-                          COMPLETED: "has been completed",
-                          NEW: "has been placed",
-                          REJECTED: "has been rejected",
-                        };
-
-                        addNotification(
-                          createNotification({
-                            recipientId: order.customerPhone,
-                            recipientRole: "customer",
-                            type: "order_status_changed",
-                            title: `Order ${label}`,
-                            message: `Your order ${order.id} ${statusMessages[status] ?? `moved to ${status}`} by ${activeShop.name}.`,
-                            relatedEntityId: order.id,
-                            entityType: "order",
-                          }),
-                        );
-                      }}
+                      onClick={() => void handleAdvance(status, label)}
                       className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors cursor-pointer hover:bg-primary/10"
                     >
                       <span className="relative h-6 w-10 shrink-0 rounded-full bg-primary">
@@ -427,21 +444,7 @@ function ShopOrderDetail() {
               {order.status === "NEW" && (
                 <button
                   type="button"
-                  onClick={() => {
-                    advanceOrder(order.id, "REJECTED");
-                    toast.error(`${order.id} rejected`);
-                    addNotification(
-                      createNotification({
-                        recipientId: order.customerPhone,
-                        recipientRole: "customer",
-                        type: "order_rejected",
-                        title: "Order Rejected",
-                        message: `Your order ${order.id} has been rejected by ${activeShop.name}.`,
-                        relatedEntityId: order.id,
-                        entityType: "order",
-                      }),
-                    );
-                  }}
+                  onClick={() => void handleAdvance("REJECTED", "Reject Order")}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                 >
                   <span className="relative h-6 w-10 shrink-0 rounded-full bg-destructive/60">
