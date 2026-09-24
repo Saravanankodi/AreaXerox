@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { RAZORPAY_CATEGORIES } from "@/lib/razorpay/categories";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -85,7 +86,7 @@ function buildInitialForm(shop: Shop) {
 }
 
 export function PayoutsManager({ shop }: { shop: Shop }) {
-  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [categories, setCategories] = useState<CategoryOption[]>(RAZORPAY_CATEGORIES);
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -97,7 +98,7 @@ export function PayoutsManager({ shop }: { shop: Shop }) {
   useEffect(() => {
     fetchRazorpayCategories()
       .then((res) => setCategories(res.categories))
-      .catch(() => setCategories([]));
+      .catch(() => setCategories(RAZORPAY_CATEGORIES));
   }, []);
 
   const [form, setForm] = useState<PayoutForm>(() => buildInitialForm(shop));
