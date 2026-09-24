@@ -10,6 +10,7 @@ import {
   mapActivationStatus,
   toRequirements,
 } from "@/lib/razorpay/server";
+import { describeRazorpayError, razorpayErrorStatus } from "@/lib/razorpay/errors";
 import { getAdminFirestore, verifyFirebaseIdToken } from "@/lib/firebase/admin";
 
 export const runtime = "nodejs";
@@ -109,6 +110,27 @@ export async function POST(request: NextRequest) {
     if (!body.shopId || !body.email || !body.phone || !body.contactName) {
       return Response.json(
         { error: "shopId, email, phone and contactName are required." },
+        { status: 400 }
+      );
+    }
+
+    const required: [string, unknown][] = [
+      ["legalBusinessName", body.legalBusinessName],
+      ["businessType", body.businessType],
+      ["category", body.category],
+      ["subcategory", body.subcategory],
+      ["address.street1", body.address?.street1],
+      ["address.city", body.address?.city],
+      ["address.state", body.address?.state],
+      ["address.postalCode", body.address?.postalCode],
+      ["owner.name", body.owner?.name],
+    ];
+    const missing = required
+      .filter(([, v]) => typeof v !== "string" || !v.trim())
+      .map(([k]) => k);
+    if (missing.length) {
+      return Response.json(
+        { error: `Missing required fields: ${missing.join(", ")}.` },
         { status: 400 }
       );
     }
@@ -272,14 +294,11 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     console.error("Razorpay onboarding/start error:", error);
 
-    const message =
-      typeof error === "object" && error !== null && "error" in error
-        ? String((error as { error: { description?: unknown } }).error?.description ?? "")
-        : "";
-
     return Response.json(
-      { error: message || "Onboarding failed. Check your details and try again." },
-      { status: 500 }
+      {
+        error: describeRazorpayError("Onboarding failed. Check your details and try again.", error),
+      },
+      { status: razorpayErrorStatus(error) }
     );
   }
 }
