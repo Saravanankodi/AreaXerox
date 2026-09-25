@@ -26,7 +26,14 @@ function loadServiceAccount(): ServiceAccount | undefined {
   if (!raw) return undefined;
 
   try {
-    return JSON.parse(raw) as ServiceAccount;
+    const sa = JSON.parse(raw) as ServiceAccount & { private_key?: string };
+    if (sa.privateKey && typeof sa.privateKey === "string") {
+      sa.privateKey = sa.privateKey.replace(/\\n/g, "\n");
+    }
+    if (sa.private_key && typeof sa.private_key === "string") {
+      sa.private_key = sa.private_key.replace(/\\n/g, "\n");
+    }
+    return sa;
   } catch {
     // Not JSON — allow a plain (newline-escaped) private key flow later.
     return undefined;
