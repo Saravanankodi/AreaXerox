@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { createOrUpdateCashfreeVendor } from "@/lib/cashfree/server";
+import { createOrUpdateCashfreeVendor, sanitizeVendorId } from "@/lib/cashfree/server";
 import { getAdminFirestore, verifyFirebaseIdToken } from "@/lib/firebase/admin";
 
 export const runtime = "nodejs";
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Cashfree Vendor ID for shop
-        const vendorId = `VND_${shopId.replace(/[^a-zA-Z0-9_-]/g, "_")}`.slice(0, 45);
+        const vendorId = sanitizeVendorId(`VND${shopId}`);
 
         let vendorStatus = "ACTIVE";
         let vendorIdResult = vendorId;

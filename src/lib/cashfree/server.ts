@@ -5,6 +5,14 @@ import { getAdminFirestore } from "@/lib/firebase/admin";
  * CASHFREE PG CONFIG & UTILITIES
  * ======================================================= */
 
+/**
+ * Cashfree `vendor_id` fields only accept alphanumeric characters.
+ */
+export function sanitizeVendorId(value: string): string {
+    const cleaned = (value ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 45);
+    return cleaned || "VNDDEFAULT";
+}
+
 export interface CashfreeCredentials {
     appId: string;
     secretKey: string;
@@ -230,7 +238,7 @@ export async function createCashfreeOrder(
 
     // Add Easy Split vendor split instruction if vendor ID and split amount exist
     if (params.vendorSplit && params.vendorSplit.vendorId && params.vendorSplit.amount > 0) {
-        const safeVendorId = params.vendorSplit.vendorId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 45);
+        const safeVendorId = sanitizeVendorId(params.vendorSplit.vendorId);
         const splitAmount = Math.min(params.amount, Number(params.vendorSplit.amount.toFixed(2)));
 
         body.order_splits = [
@@ -304,7 +312,7 @@ export interface CashfreeVendorEntity {
 export async function createOrUpdateCashfreeVendor(
     params: CreateCashfreeVendorParams
 ): Promise<CashfreeVendorEntity> {
-    const safeVendorId = params.vendorId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 45);
+    const safeVendorId = sanitizeVendorId(params.vendorId);
     const safePhone = params.phone.replace(/\D/g, "").slice(-10) || "9999999999";
     const safeEmail = params.email.trim() || "shop@example.com";
     const safeName = params.name.trim() || "Vendor";
