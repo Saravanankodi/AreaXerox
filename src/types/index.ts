@@ -1125,3 +1125,13 @@ export interface Notification {
 
   createdAt: string;
 }
+
+export interface PrintSimulationOption {
+  docType: 'notes' | 'thesis' | 'flyer' | 'cards' | 'cad';
+  pages: number;
+  copies: number;
+  colorMode: 'bw' | 'color';
+  paperGsm: '75gsm' | '100gsm' | '300gsm';
+  binding: 'none' | 'spiral' | 'hardbound' | 'stapled';
+  deliveryType: 'pickup' | 'express';
+}
