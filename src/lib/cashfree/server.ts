@@ -14,17 +14,18 @@ export interface CashfreeCredentials {
 }
 
 export function getCashfreeCredentials(): CashfreeCredentials {
-    const appId =
+    const appId = (
         process.env.CASHFREE_APP_ID ??
         process.env.CASHFREE_CLIENT_ID ??
         process.env.NEXT_PUBLIC_CASHFREE_APP_ID ??
-        "";
-    const secretKey = process.env.CASHFREE_SECRET_KEY ?? "";
+        ""
+    ).trim();
+    const secretKey = (process.env.CASHFREE_SECRET_KEY ?? "").trim();
     const rawEnv = (
         process.env.CASHFREE_ENVIRONMENT ??
         process.env.NEXT_PUBLIC_CASHFREE_ENVIRONMENT ??
         "sandbox"
-    ).toLowerCase();
+    ).trim().toLowerCase();
 
     const environment: "sandbox" | "production" = rawEnv === "production" ? "production" : "sandbox";
     const baseUrl =
@@ -36,7 +37,7 @@ export function getCashfreeCredentials(): CashfreeCredentials {
         process.env.PAYMENT_GATEWAY ??
         process.env.NEXT_PUBLIC_PAYMENT_GATEWAY ??
         "cashfree"
-    ).toLowerCase() as "cashfree" | "razorpay";
+    ).trim().toLowerCase() as "cashfree" | "razorpay";
 
     return { appId, secretKey, environment, baseUrl, gateway };
 }
@@ -333,8 +334,17 @@ export async function createOrUpdateCashfreeVendor(
             body,
         });
     } catch (err: unknown) {
-        // If vendor already exists, attempt PUT or fetch
         const status = (err as { status?: number }).status;
+        if (status === 404) {
+            try {
+                return await cashfreeApiFetch<CashfreeVendorEntity>("/easy-split/vendors", {
+                    method: "POST",
+                    body,
+                });
+            } catch (innerErr) {
+                throw innerErr;
+            }
+        }
         if (status === 409 || status === 400) {
             try {
                 return await cashfreeApiFetch<CashfreeVendorEntity>(
@@ -357,7 +367,14 @@ export async function createOrUpdateCashfreeVendor(
  */
 export async function fetchCashfreeVendor(vendorId: string): Promise<CashfreeVendorEntity> {
     const safeVendorId = vendorId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 45);
-    return cashfreeApiFetch<CashfreeVendorEntity>(`/vendors/${encodeURIComponent(safeVendorId)}`);
+    try {
+        return await cashfreeApiFetch<CashfreeVendorEntity>(`/vendors/${encodeURIComponent(safeVendorId)}`);
+    } catch (err) {
+        if ((err as { status?: number }).status === 404) {
+            return cashfreeApiFetch<CashfreeVendorEntity>(`/easy-split/vendors/${encodeURIComponent(safeVendorId)}`);
+        }
+        throw err;
+    }
 }
 
 /* =========================================================

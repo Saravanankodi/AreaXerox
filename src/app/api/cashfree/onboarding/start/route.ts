@@ -115,7 +115,8 @@ export async function POST(request: NextRequest) {
         });
     } catch (error: unknown) {
         console.error("Cashfree onboarding start error:", error);
-        const msg = error instanceof Error ? error.message : "Vendor onboarding failed.";
-        return Response.json({ error: msg }, { status: 500 });
+        const errObj = error as { message?: string; body?: unknown };
+        const msg = errObj?.message || "Vendor onboarding failed. Please verify your details.";
+        return Response.json({ error: msg, details: errObj?.body }, { status: 400 });
     }
 }
