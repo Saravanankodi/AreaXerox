@@ -47,6 +47,51 @@ export type CustomerPayoutMethod =
   | "upi"
   | "bank_transfer";
 
+/* =========================================================
+ * RAZORPAY ROUTE / LINKED ACCOUNTS
+ * ======================================================= */
+
+/**
+ * Lifecycle of a shopkeeper's linked (Route) account on Razorpay.
+ *
+ * Drive exclusively by server-side onboarding + Razorpay webhooks —
+ * the client must never write these fields directly to Firestore.
+ */
+export type RazorpayOnboardingStatus =
+  | "not_started"
+  | "processing"
+  | "under_review"
+  | "needs_clarification"
+  | "activated"
+  | "failed";
+
+export type RazorpayRequirementStatus =
+  | "required"
+  | "pending"
+  | "satisfied"
+  | "additional_docs_required";
+
+export interface RazorpayRequirement {
+  field_reference: string;
+  reason_code?: string;
+  status?: RazorpayRequirementStatus;
+}
+
+export interface RazorpayOnboardingStatusData {
+  accountId?: string;
+  productId?: string;
+  /** Server-only details; this object gets no raw PAN/bank numbers from the store. */
+  requirements?: RazorpayRequirement[];
+}
+
+export type RazorpaySettlementStatus =
+  | "pending"
+  | "settled";
+
+export type RazorpayPayoutStatus =
+  | "pending"
+  | "transferred";
+
 
 /* =========================================================
  * ORDER STATUS
@@ -500,6 +545,40 @@ export interface Shop {
 
   bankBranch?: string;
 
+  /**
+   * Razorpay Route (linked account) id. Written only by the server.
+   */
+  razorpayAccountId?: string;
+
+  /**
+   * Razorpay stakeholder id for the shop owner. Written only by the server.
+   */
+  razorpayStakeholderId?: string;
+
+  /**
+   * Razorpay product-configuration id for the `route` product.
+   * Written only by the server.
+   */
+  razorpayProductId?: string;
+
+  /**
+   * Current linked-account activation state. Mirrors Razorpay product
+   * `activation_status` plus `not_started` until onboarding begins.
+   */
+  razorpayOnboardingStatus?: RazorpayOnboardingStatus;
+
+  /**
+   * True once the shopkeeper's linked account fully passes KYC (`activated`)
+   * so automated Route transfers can be attached to new orders.
+   */
+  payoutEnabled?: boolean;
+
+  /**
+   * Server-side requirement list describing what is still missing for the
+   * linked account to activate. Mirrored for the dashboard UI.
+   */
+  razorpayRequirements?: RazorpayRequirement[];
+
   frontImage?: string;
 
   interiorImage?: string;
@@ -701,6 +780,41 @@ export interface OrderPayment {
   transactionId?: string;
 
   paidAt?: string;
+
+  /**
+   * Razorpay Order id created for this order's online payment.
+   * Set server-side only.
+   */
+  razorpayOrderId?: string;
+
+  /**
+   * Razorpay Payment id returned after the customer completes checkout.
+   * Set server-side only.
+   */
+  razorpayPaymentId?: string;
+
+  /**
+   * Razorpay signature verified during server-side payment confirmation.
+   * Set server-side only.
+   */
+  razorpaySignature?: string;
+
+  /**
+   * Journey of funds from the platform account to the shop's linked account
+   * once the order is captured.
+   */
+  settlementStatus?: RazorpaySettlementStatus;
+
+  /**
+   * Razorpay transfer ids emitted for this order (1:1 with shops when
+   * automated payout applies).
+   */
+  razorpayTransferIds?: string[];
+
+  /**
+   * Whether the shopkeeper share has been transferred to the linked account.
+   */
+  razorpayPayoutStatus?: RazorpayPayoutStatus;
 }
 
 
@@ -773,6 +887,41 @@ export interface Order {
   balance: number;
 
   paymentStatus: PaymentStatus;
+
+  /**
+   * Razorpay Order id created for this order's online payment.
+   * Set server-side only.
+   */
+  razorpayOrderId?: string;
+
+  /**
+   * Razorpay Payment id returned after the customer completes checkout.
+   * Set server-side only.
+   */
+  razorpayPaymentId?: string;
+
+  /**
+   * Razorpay signature verified during server-side payment confirmation.
+   * Set server-side only.
+   */
+  razorpaySignature?: string;
+
+  /**
+   * Journey of funds from the platform account to the shop's linked account
+   * once the order is captured.
+   */
+  settlementStatus?: RazorpaySettlementStatus;
+
+  /**
+   * Razorpay transfer ids emitted for this order (1:1 with shops when
+   * automated payout applies).
+   */
+  razorpayTransferIds?: string[];
+
+  /**
+   * Whether the shopkeeper share has been transferred to the linked account.
+   */
+  razorpayPayoutStatus?: RazorpayPayoutStatus;
 
   status: OrderStatus;
 
@@ -1124,6 +1273,33 @@ export interface Notification {
   read: boolean;
 
   createdAt: string;
+}
+
+
+/* =========================================================
+ * PLATFORM SETTINGS
+ *
+ * Firestore:
+ * platform/settings
+ *
+ * Read by server-side checkout to decide the platform commission
+ * applied to Razorpay Route transfers.
+ * ======================================================= */
+
+export interface PlatformSettings {
+  /**
+   * Percentage kept by the platform on every online payment.
+   * e.g. 15 = 15%. The remainder is transferred to the shop.
+   */
+  commissionPercent?: number;
+
+  /**
+   * When false the platform always keeps a minimum ₹0.01 so Route
+   * transfer amounts can never equal the captured amount.
+   */
+  enforceMinimumCut?: boolean;
+
+  updatedAt?: string;
 }
 
 export interface PrintSimulationOption {

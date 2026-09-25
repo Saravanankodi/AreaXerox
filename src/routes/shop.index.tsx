@@ -11,6 +11,7 @@ import {
   Lock,
   ArrowRight,
   Info,
+  Wallet,
 } from "lucide-react";
 import { ShopShell } from "@/components/layout/ShopShell";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,20 @@ import { fulfillmentLabel } from "@/lib/labels";
 import { getShopOnboardingState } from "@/lib/onboarding";
 import { cn } from "@/lib/utils";
 import type { Shop } from "@/types";
+
+const DAY_SEQUENCE = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function buildWorkingDays(from?: string, to?: string): string[] {
+  if (!from || !to) return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const start = DAY_SEQUENCE.indexOf(from);
+  const end = DAY_SEQUENCE.indexOf(to);
+  if (start < 0 || end < 0) return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  if (end >= start) {
+    return DAY_SEQUENCE.slice(start, end + 1).map((d) => d.slice(0, 3));
+  }
+  // Wrap around (e.g. Sunday to Saturday not typical, but just in case)
+  return [...DAY_SEQUENCE.slice(start), ...DAY_SEQUENCE.slice(0, end + 1)].map((d) => d.slice(0, 3));
+}
 
 export const Route = createFileRoute("/shop/")({
   head: () => ({
@@ -117,30 +132,32 @@ function ShopDashboard() {
         accountId: session.accountId,
         username: session.email.split("@")[0] ?? "shopkeeper",
         ownerName: activeShop.ownerName,
-        phone: activeShop.phone,
+        phone: activeShop.ownerPhone ?? activeShop.phone,
         alternatePhone: "",
       },
       shopName: activeShop.name,
-      shopAddress: activeShop.addressLine1 ?? activeShop.address,
-      area: "",
-      city: "",
-      state: "",
-      pincode: "",
-      shopDescription: "",
+      shopAddress: activeShop.addressLine1
+        ? [activeShop.addressLine1, activeShop.addressLine2].filter(Boolean).join(", ")
+        : activeShop.address,
+      area: activeShop.addressLine2 ?? "",
+      city: activeShop.city ?? "",
+      state: activeShop.state ?? "",
+      pincode: activeShop.zip ?? "",
+      shopDescription: activeShop.description ?? "",
       shopImages: [],
       services: {
         a4: activeShop.paperTypes.some((p) => p.id === "a4" && p.enabled),
         a3: activeShop.paperTypes.some((p) => p.id === "a3" && p.enabled),
         bondSheet: activeShop.paperTypes.some((p) => p.id === "bond" && p.enabled),
         photoSheet: activeShop.paperTypes.some((p) => (p.id === "photo-4" || p.id === "photo-8") && p.enabled),
-        bw: activeShop.printTypes.bw,
-        colour: activeShop.printTypes.color,
+        bw: activeShop.paperTypes.some((p) => p.enabled && p.bwEnabled),
+        colour: activeShop.paperTypes.some((p) => p.enabled && p.colorEnabled),
         pickup: activeShop.pickup,
         delivery: activeShop.delivery.enabled,
         deliveryFee: activeShop.delivery.fee,
         businessHoursFrom: activeShop.openingTime ?? "09:00",
         businessHoursTo: activeShop.closingTime ?? "21:00",
-        workingDays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+        workingDays: buildWorkingDays(activeShop.workingDaysFrom, activeShop.workingDaysTo),
       },
       accountStatus: "pending" as const,
       createdAt: application?.createdAt ?? now,
@@ -159,7 +176,7 @@ function ShopDashboard() {
       if (ta !== tb) return ta - tb;
       return a.id.localeCompare(b.id);
     });
-  const revenue = mine.reduce((s, o) => s + o.amountPaid, 0);
+  const revenue = mine.reduce((s, o) => s + (o.amountPaid ?? 0), 0);
   const pendingBalance = mine.reduce((s, o) => s + o.balance, 0);
 
   const stats = [
@@ -184,7 +201,7 @@ function ShopDashboard() {
     }
   }
 
-  const isApproved = !activeShop.accountStatus || activeShop.accountStatus === "active";
+  const isApproved = activeShop.accountStatus === "active";
   const isSetupComplete = onboarding.profileComplete && onboarding.servicesComplete && isApproved;
 
   return (
@@ -386,6 +403,43 @@ function ShopDashboard() {
           </div>
         </>
       )}
+
+      {/* Razorpay Payouts banner */}
+      {isApproved &&
+        (activeShop.razorpayOnboardingStatus === "activated" ? (
+          <div className="mb-6 flex items-start justify-between gap-4 rounded-lg border border-success/25 bg-success-light px-4 py-3">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+              <div>
+                <p className="text-sm font-semibold text-success">Automated payouts active</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Your share of online orders is transferred to your linked Razorpay account.
+                </p>
+              </div>
+            </div>
+            <Link to="/shop/settings" className="shrink-0 text-xs font-medium text-primary hover:underline">
+              Manage
+            </Link>
+          </div>
+        ) : (
+          <div className="mb-6 flex items-center justify-between gap-4 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+            <div className="flex items-start gap-3">
+              <Wallet className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <div>
+                <p className="text-sm font-semibold">Collect online payments automatically</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Link your bank account via Razorpay to get paid out for every online order —
+                  no manual settlement needed.
+                </p>
+              </div>
+            </div>
+            <Link to="/shop/settings" className="shrink-0">
+              <Button size="sm" variant="outline" className="whitespace-nowrap">
+                Set up payouts
+              </Button>
+            </Link>
+          </div>
+        ))}
 
       {/* Stats */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">

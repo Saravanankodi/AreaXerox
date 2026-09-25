@@ -11,37 +11,9 @@ import {
     where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { seedShops } from "@/lib/seed";
 import type { Shop, AccountStatus } from "@/types";
 
 const SHOPS_COLLECTION = "shops";
-
-/**
- * Ensures the shops collection is seeded with default active shops
- * if it has no active shops yet.
- */
-export async function seedShopsIfEmpty(): Promise<Shop[]> {
-    try {
-        const snapshot = await getDocs(
-            query(collection(db, SHOPS_COLLECTION), where("accountStatus", "==", "active"))
-        );
-        if (!snapshot.empty) {
-            return snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Shop));
-        }
-        console.log("Seeding initial shops to Firestore...");
-        const seeded: Shop[] = [];
-        for (const shop of seedShops) {
-            const shopRef = doc(db, SHOPS_COLLECTION, shop.id);
-            const shopData = { ...shop, accountStatus: "active" as AccountStatus };
-            await setDoc(shopRef, shopData);
-            seeded.push(shopData);
-        }
-        return seeded;
-    } catch (error) {
-        console.error("Error seeding shops:", error);
-        return seedShops;
-    }
-}
 
 /**
  * Creates a new shop document (used when a shopkeeper submits their application).

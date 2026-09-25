@@ -133,7 +133,7 @@ export function ShopShell({
             );
           })}
         </nav>
-        <div className="hidden px-3 pb-6 lg:block">
+        <div className="px-3 pb-6 lg:block">
           <Link
             to="/"
             className="flex items-center gap-2.5 rounded-md px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"

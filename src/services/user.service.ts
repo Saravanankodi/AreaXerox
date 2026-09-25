@@ -7,7 +7,7 @@ import {
   getDocs,
   onSnapshot,
 } from "firebase/firestore";
-import { db, fsSet, fsGet, fsUpdate, fsDelete } from "@/lib/firebase/firestore";
+import { db, fsGet, fsUpdate } from "@/lib/firebase/firestore";
 import type { Address, CustomerProfile, SupportTicket } from "@/types";
 
 export async function getUserProfile(uid: string): Promise<CustomerProfile | null> {
@@ -22,10 +22,15 @@ export async function getUserProfile(uid: string): Promise<CustomerProfile | nul
 }
 
 export async function updateUserProfile(uid: string, profile: CustomerProfile): Promise<void> {
-  await fsSet(`users/${uid}`, {
-    ...profile,
-    updatedAt: new Date().toISOString(),
-  });
+  // Never persist empty identity fields over a real profile — an empty save
+  // (e.g. before the store had hydrated) must not wipe name/phone/email.
+  const clean: Record<string, string> = {};
+  for (const [key, value] of Object.entries(profile)) {
+    if (typeof value === "string" && value.trim() !== "") {
+      clean[key] = value.trim();
+    }
+  }
+  await fsUpdate(`users/${uid}`, clean);
 }
 
 export async function getUserAddresses(uid: string): Promise<Address[]> {

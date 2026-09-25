@@ -82,6 +82,40 @@ export async function updateOrderStatusInFirestore(
 }
 
 /**
+ * Persists a cash/UPI/card collection (full or partial) against an order.
+ * Reads the current order first so concurrent edits don't wipe other fields,
+ * then patches the payment state and marks the order settled when paid.
+ */
+export async function collectPartialPaymentInDb(
+    orderId: string,
+    amount: number,
+    via: "cash" | "upi" | "card"
+): Promise<void> {
+    const orderRef = doc(db, ORDERS_COLLECTION, orderId);
+    const snap = await getDoc(orderRef);
+
+    if (!snap.exists()) {
+        throw new Error(`Order ${orderId} not found in Firestore.`);
+    }
+
+    const current = snap.data() as Order;
+    const safeAmount = Math.max(0, Math.min(amount, current.balance));
+    const paid = Math.min(current.price.total, (current.amountPaid ?? 0) + safeAmount);
+    const balance = Math.max(0, current.price.total - paid);
+    const paymentStatus = balance <= 0 ? "paid" : safeAmount > 0 ? "partial" : current.paymentStatus;
+
+    const patch: Record<string, unknown> = {
+        amountPaid: paid,
+        balance,
+        paymentStatus,
+        balanceCollectedVia: via,
+        updatedAt: new Date().toISOString(),
+    };
+
+    await updateDoc(orderRef, patch);
+}
+
+/**
  * Subscribes to real-time order updates for a specific customer.
  */
 export function listenToUserOrders(

@@ -11,7 +11,7 @@ export function PaymentCollection({ order }: { order: Order }) {
   const [amount, setAmount] = useState("");
   const [error, setError] = useState("");
 
-  const isFullyPaid = order.paymentMethod === "full";
+  const isFullyPaid = order.paymentMethod === "full" && order.balance <= 0;
   const isAdvance = order.paymentMethod === "advance";
   const isCashPickup = order.paymentMethod === "cash_pickup";
   const isCashDelivery = order.paymentMethod === "cash_delivery";
@@ -55,7 +55,7 @@ export function PaymentCollection({ order }: { order: Order }) {
     <div className="card-surface p-4">
       <h3 className="text-sm font-semibold">Payment Collection</h3>
 
-      {isAdvance && (
+      {(isAdvance || order.paymentMethod === "full") && (
         <div className="mt-3 space-y-1 text-xs">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Order Total</span>

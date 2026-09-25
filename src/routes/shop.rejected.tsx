@@ -26,11 +26,15 @@ function ShopRejectedPage() {
     }
     if (session.accountStatus === "pending") {
       navigate({ to: "/shop" });
+      return;
     }
     getShopByOwner(session.accountId)
       .then(setApplication)
       .catch(console.error);
   }, [session, navigate, ready]);
+
+  const isSuspended = session?.accountStatus === "suspended";
+  const isDisabled = session?.accountStatus === "disabled";
 
   if (
     !ready ||
@@ -49,26 +53,36 @@ function ShopRejectedPage() {
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
           <XCircle className="h-8 w-8 text-destructive" />
         </div>
-        <h1 className="mt-6 text-2xl font-bold">Application not approved</h1>
+        <h1 className="mt-6 text-2xl font-bold">
+          {isSuspended ? "Account suspended" : isDisabled ? "Account disabled" : "Application not approved"}
+        </h1>
         <p className="mt-3 text-sm text-muted-foreground">
-          Your shopkeeper application was not approved.
+          {isSuspended
+            ? "Your shop account has been temporarily suspended. Contact XEROXMATE support if you believe this is a mistake."
+            : isDisabled
+              ? "Your shop account has been disabled. Contact XEROXMATE support if you believe this is a mistake."
+              : "Your shopkeeper application was not approved."}
         </p>
-        {application?.rejectionReason && (
+        {!isSuspended && !isDisabled && application?.rejectionReason && (
           <div className="mt-5 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-left">
             <p className="text-xs font-semibold uppercase text-destructive">Reason</p>
             <p className="mt-1 text-sm">{application.rejectionReason}</p>
           </div>
         )}
-        <p className="mt-4 text-sm text-muted-foreground">
-          You can update your shop profile and resubmit from the dashboard.
-        </p>
+        {!isSuspended && !isDisabled && (
+          <p className="mt-4 text-sm text-muted-foreground">
+            You can update your shop profile and resubmit from the dashboard.
+          </p>
+        )}
         <div className="mt-8 flex flex-wrap justify-center gap-3">
-          <Link
-            to="/shop"
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            Go to Dashboard
-          </Link>
+          {!isSuspended && !isDisabled && (
+            <Link
+              to="/shop"
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Go to Dashboard
+            </Link>
+          )}
           <button
             onClick={() => {
               signOut();

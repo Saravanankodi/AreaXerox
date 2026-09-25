@@ -1,13 +1,14 @@
 import { createFileRoute } from "@/lib/navigation";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { X, Image as ImageIcon, Info, Save, LoaderCircle, CheckCircle2 } from "lucide-react";
+import { X, Image as ImageIcon, Info, Save, LoaderCircle } from "lucide-react";
 import { ShopShell } from "@/components/layout/ShopShell";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
+import { uploadFileToCloudinary } from "@/lib/cloudinary";
 import { cn } from "@/lib/utils";
 import type { Shop, ShopPaymentMethod } from "@/types";
 import { useMyShop } from "@/lib/useMyShop";
@@ -49,7 +50,7 @@ function ShopProfile() {
   const snapshotRef = useRef<Shop>(storeShop);
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [verifyingUpi, setVerifyingUpi] = useState(false);
+  const [uploadingTarget, setUploadingTarget] = useState<"frontImage" | "interiorImage" | null>(null);
 
   // Re-sync the draft when a different shop loads (e.g. the own shop arrives
   // asynchronously), while preserving unsaved edits for the same shop.
@@ -89,6 +90,7 @@ function ShopProfile() {
       shop.payments.advance !== s.payments.advance ||
       shop.payments.cashPickup !== s.payments.cashPickup ||
       shop.payments.cashDelivery !== s.payments.cashDelivery ||
+      shop.payments.advancePercent !== s.payments.advancePercent ||
       shop.shopPaymentMethod !== s.shopPaymentMethod ||
       shop.upiId !== s.upiId ||
       shop.upiVerified !== s.upiVerified ||
@@ -110,7 +112,7 @@ function ShopProfile() {
   const setPayments = (patch: Partial<Shop["payments"]>) =>
     set("payments", { ...shop.payments, ...patch });
 
-  function handleImageUpload(file: File, target: "frontImage" | "interiorImage") {
+  async function handleImageUpload(file: File, target: "frontImage" | "interiorImage") {
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
       toast.error("Only JPG, PNG, and WEBP images are allowed");
       return;
@@ -119,12 +121,16 @@ function ShopProfile() {
       toast.error(`Image must be under ${MAX_IMAGE_SIZE_MB} MB`);
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      set(target, reader.result as string);
+    setUploadingTarget(target);
+    try {
+      const result = await uploadFileToCloudinary(file);
+      set(target, result.url);
       toast.success(target === "frontImage" ? "Front image uploaded" : "Interior image uploaded");
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      toast.error("Image upload failed. Please try again.");
+    } finally {
+      setUploadingTarget(null);
+    }
   }
 
   function handleSave() {
@@ -155,6 +161,11 @@ function ShopProfile() {
       setSaving(false);
       return;
     }
+    if (p.advance && (!p.advancePercent || p.advancePercent <= 0 || p.advancePercent > 90)) {
+      toast.error("Advance percentage must be between 1 and 90");
+      setSaving(false);
+      return;
+    }
 
     // Payout method — exactly one required
     if (!shop.shopPaymentMethod) {
@@ -164,11 +175,6 @@ function ShopProfile() {
     }
     if (shop.shopPaymentMethod === "upi" && !shop.upiId?.trim()) {
       toast.error("UPI ID is required when UPI is selected");
-      setSaving(false);
-      return;
-    }
-    if (shop.shopPaymentMethod === "upi" && shop.upiId?.trim() && !shop.upiVerified) {
-      toast.error("Please verify your UPI ID before saving");
       setSaving(false);
       return;
     }
@@ -184,7 +190,10 @@ function ShopProfile() {
     if (!shop.interiorImage) { toast.error("Shop interior image is required"); setSaving(false); return; }
 
     // Persist the draft to Firestore only now, on Save.
-    updateShop(storeShop.id, () => ({ ...draft, id: storeShop.id }));
+    const dayRange = [shop.workingDaysFrom, shop.workingDaysTo].filter(Boolean).join("-");
+    const timeRange = [shop.openingTime, shop.closingTime].filter(Boolean).join("-");
+    const hours = [dayRange, timeRange].filter(Boolean).join(" · ") || shop.hours;
+    updateShop(storeShop.id, () => ({ ...draft, id: storeShop.id, hours }));
     snapshotRef.current = draft;
     setHasChanges(false);
     setSaving(false);
@@ -421,9 +430,13 @@ function ShopProfile() {
                   <Input
                     id="free"
                     type="number"
+                    min="0"
                     className="mt-1.5"
-                    value={shop.delivery.freeAbove ?? 0}
-                    onChange={(e) => setDelivery({ freeAbove: Number(e.target.value) || null })}
+                    value={shop.delivery.freeAbove ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      setDelivery({ freeAbove: v === "" ? null : Math.max(0, Number(v) || 0) });
+                    }}
                   />
                 </div>
                 <div className="sm:col-span-2">
@@ -482,9 +495,30 @@ function ShopProfile() {
             <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-secondary/50 px-4 py-3">
               <Info className="h-4 w-4 shrink-0 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
-                Advance payment is fixed at <span className="font-semibold text-foreground">50%</span>
+                When &ldquo;Pay advance online&rdquo; is on, customers pay this percentage up front
+                and the rest at the shop.
               </p>
             </div>
+            {shop.payments.advance && (
+              <div className="mt-3">
+                <Label htmlFor="advancePercent">Advance amount (% of order total)</Label>
+                <Input
+                  id="advancePercent"
+                  type="number"
+                  min="1"
+                  max="90"
+                  step="1"
+                  className="mt-1.5 w-32"
+                  value={shop.payments.advancePercent ?? 30}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    setPayments({
+                      advancePercent: Number.isFinite(n) ? Math.min(90, Math.max(1, Math.round(n))) : 30,
+                    });
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           {/* Payout Method — Required for setup */}
@@ -527,46 +561,16 @@ function ShopProfile() {
             {shop.shopPaymentMethod === "upi" && (
               <div className="mt-4">
                 <Label htmlFor="upiId">UPI ID <Required /></Label>
-                <div className="mt-1.5 flex gap-2">
-                  <Input
-                    id="upiId"
-                    className="flex-1"
-                    placeholder="e.g. yourshop@upi"
-                    value={shop.upiId ?? ""}
-                    onChange={(e) => {
-                      set("upiId", e.target.value);
-                      if (shop.upiVerified) {
-                        set("upiVerified", false);
-                      }
-                    }}
-                  />
-                  <Button
-                    variant="outline"
-                    type="button"
-                    disabled={!shop.upiId?.trim() || verifyingUpi || shop.upiVerified}
-                    onClick={() => {
-                      setVerifyingUpi(true);
-                      setTimeout(() => {
-                        setVerifyingUpi(false);
-                        set("upiVerified", true);
-                        toast.success("UPI ID verified");
-                      }, 1500);
-                    }}
-                  >
-                    {verifyingUpi ? (
-                      <LoaderCircle className="h-4 w-4 animate-spin" />
-                    ) : shop.upiVerified ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-600" />
-                    ) : (
-                      "Verify"
-                    )}
-                  </Button>
-                </div>
-                {shop.upiVerified && (
-                  <p className="mt-1.5 text-xs text-green-600">Verified</p>
-                )}
+                <Input
+                  id="upiId"
+                  className="mt-1.5"
+                  placeholder="e.g. yourshop@upi"
+                  value={shop.upiId ?? ""}
+                  onChange={(e) => set("upiId", e.target.value)}
+                />
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  Your UPI ID for receiving payouts.
+                  Your UPI ID for receiving payouts. Double-check it — no automatic verification is
+                  performed.
                 </p>
               </div>
             )}
@@ -659,17 +663,20 @@ function ShopProfile() {
                       onClick={() => frontInputRef.current?.click()}
                       className="absolute bottom-2 right-2 rounded-md bg-background/80 px-2 py-1 text-xs font-medium hover:bg-background"
                     >
-                      Replace
+                      {uploadingTarget === "frontImage" ? "Uploading…" : "Replace"}
                     </button>
                   </div>
                 ) : (
                   <button
                     type="button"
                     onClick={() => frontInputRef.current?.click()}
-                    className="mt-2 flex h-40 w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-secondary/30 text-muted-foreground hover:border-primary hover:text-primary"
+                    disabled={uploadingTarget !== null}
+                    className="mt-2 flex h-40 w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-secondary/30 text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <ImageIcon className="h-8 w-8" />
-                    <span className="mt-2 text-xs font-medium">Upload Front Image</span>
+                    <span className="mt-2 text-xs font-medium">
+                      {uploadingTarget === "frontImage" ? "Uploading…" : "Upload Front Image"}
+                    </span>
                   </button>
                 )}
               </div>
@@ -708,17 +715,20 @@ function ShopProfile() {
                       onClick={() => interiorInputRef.current?.click()}
                       className="absolute bottom-2 right-2 rounded-md bg-background/80 px-2 py-1 text-xs font-medium hover:bg-background"
                     >
-                      Replace
+                      {uploadingTarget === "interiorImage" ? "Uploading…" : "Replace"}
                     </button>
                   </div>
                 ) : (
                   <button
                     type="button"
                     onClick={() => interiorInputRef.current?.click()}
-                    className="mt-2 flex h-40 w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-secondary/30 text-muted-foreground hover:border-primary hover:text-primary"
+                    disabled={uploadingTarget !== null}
+                    className="mt-2 flex h-40 w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-secondary/30 text-muted-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <ImageIcon className="h-8 w-8" />
-                    <span className="mt-2 text-xs font-medium">Upload Interior Image</span>
+                    <span className="mt-2 text-xs font-medium">
+                      {uploadingTarget === "interiorImage" ? "Uploading…" : "Upload Interior Image"}
+                    </span>
                   </button>
                 )}
               </div>

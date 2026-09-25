@@ -144,10 +144,10 @@ export function calculatePrice(
   const rate =
     paper &&
     (config.printType === "color"
-      ? paper.colorEnabled && shop.printTypes.color
+      ? paper.colorEnabled
         ? paper.colorPrice
         : 0
-      : paper.bwEnabled && shop.printTypes.bw
+      : paper.bwEnabled
         ? paper.bwPrice
         : 0);
   const copies = Math.max(1, Math.floor(config.copies));

@@ -63,7 +63,9 @@ export function canRequestApproval(shop: Shop): boolean {
 }
 
 export function isShopApproved(shop: Shop): boolean {
-  return !shop.accountStatus || shop.accountStatus === "active";
+  // Only an explicit "active" status is approved — a missing status means the
+  // shop was never approved, so it must not be treated as live.
+  return shop.accountStatus === "active";
 }
 
 export function isShopVisibleToCustomers(shop: Shop): boolean {

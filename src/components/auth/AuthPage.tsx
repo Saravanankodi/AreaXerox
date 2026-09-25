@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-import { useAuth } from "@/lib/auth";
+import { useAuth, healAccountIdentity } from "@/lib/auth";
 
 import { useStore } from "@/lib/store";
 
@@ -489,12 +489,15 @@ export function AuthPage({
             "Your account has been disabled.",
           );
 
-          await auth.signOut();
+await auth.signOut();
 
-          return;
-        }
+        return;
+      }
 
-        /*
+      // Repair the account doc if its identity was ever wiped by an empty save.
+      await healAccountIdentity(account.id, credential.user);
+
+      /*
          * Customer account suspended.
          */
         if (
@@ -524,7 +527,7 @@ export function AuthPage({
           account.name ||
           credential.user.displayName ||
           account.email.split("@")[0] ||
-          "User",
+          "Customer",
         phone: account.phone ?? "",
         registrationStatus:
           account.registrationStatus,
@@ -754,6 +757,9 @@ export function AuthPage({
                   return;
                 }
 
+                // Repair the account doc if its identity was ever wiped by an empty save.
+                await healAccountIdentity(account.id, user);
+
                 signIn({
                   accountId: account.id,
                   role: account.role,
@@ -762,7 +768,7 @@ export function AuthPage({
                     account.name ||
                     user.displayName ||
                     user.email?.split("@")[0] ||
-                    "User",
+                    "Customer",
                   phone: account.phone ?? "",
                   registrationStatus:
                     account.registrationStatus,

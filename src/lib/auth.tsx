@@ -183,6 +183,48 @@ async function getUserById(
   return undefined;
 }
 
+/**
+ * Repair an account document that lost its identity fields (e.g. an old save
+ * persisted empty name/phone over it). Fills the gaps from the Firebase auth
+ * identity so orders always carry the customer's real name.
+ */
+export async function healAccountIdentity(
+  id: string,
+  source: {
+    name?: string | null;
+    email?: string | null;
+    phoneNumber?: string | null;
+  },
+): Promise<void> {
+  try {
+    const snapshot = await getDoc(doc(db, "users", id));
+    if (!snapshot.exists()) return;
+
+    const data = snapshot.data();
+    const email = String(data.email ?? "");
+    const nested = data.profile as { name?: string; phone?: string } | undefined;
+    const currentName =
+      String(data.name ?? "").trim() || nested?.name?.trim() || "";
+
+    const patch: Record<string, string> = {};
+    if (!currentName) {
+      const candidate =
+        source.name?.trim() ||
+        (source.email ?? email).split("@")[0].trim() ||
+        "";
+      if (candidate) patch.name = candidate;
+    }
+    if (!String(data.phone ?? "").trim() && source.phoneNumber?.trim()) {
+      patch.phone = source.phoneNumber.trim();
+    }
+    if (Object.keys(patch).length > 0) {
+      await updateDoc(doc(db, "users", id), patch);
+    }
+  } catch (error) {
+    console.warn("healAccountIdentity failed:", error);
+  }
+}
+
 
 /* =========================================================
  * SESSION CACHE
@@ -271,6 +313,24 @@ export function AuthProvider({
             }
 
             if (account) {
+              // Self-heal: if the Firebase identity carries a name/phone that the
+              // account doc never stored, persist it so orders always have real
+              // customer details (fixes accounts created before this existed).
+              const missingName = !account.name?.trim() && !!user.displayName?.trim();
+              const missingPhone = !account.phone?.trim() && !!user.phoneNumber?.trim();
+              if (missingName || missingPhone) {
+                const patch: Record<string, string> = {};
+                if (missingName && user.displayName) {
+                  patch.name = user.displayName.trim();
+                  account = { ...account, name: patch.name };
+                }
+                if (missingPhone && user.phoneNumber) {
+                  patch.phone = user.phoneNumber.trim();
+                  account = { ...account, phone: patch.phone };
+                }
+                updateDoc(doc(db, "users", account.id), patch).catch(console.warn);
+              }
+
               const restored: AccountSession = {
                 accountId: account.id,
                 role: account.role,
