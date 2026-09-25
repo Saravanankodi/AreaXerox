@@ -614,64 +614,9 @@ function DocumentPreviewDialog({
   );
 }
 
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-
-function shopOpenDays(shop: Shop): Set<string> {
-  const daySet = new Set<string>();
-
-  if (shop.workingDays?.length) {
-    for (const day of shop.workingDays) {
-      daySet.add(day.charAt(0).toUpperCase() + day.slice(1));
-    }
-    return daySet;
-  }
-
-  const hours = shop.hours ?? "Mon – Sat · 8:00 AM – 9:00 PM";
-  const prefix = hours.split("·")[0]?.trim() ?? "";
-  if (/sun/i.test(prefix) && !/mon/i.test(prefix)) {
-    daySet.add("Sun");
-    return daySet;
-  }
-  const rangeMatch = prefix.match(/(\w+)\s*[–-]\s*(\w+)/);
-  if (rangeMatch) {
-    const start = DAY_NAMES.findIndex((d) => d.toLowerCase() === rangeMatch[1]!.toLowerCase());
-    const end = DAY_NAMES.findIndex((d) => d.toLowerCase() === rangeMatch[2]!.toLowerCase());
-    if (start !== -1 && end !== -1) {
-      let i = start;
-      while (true) {
-        daySet.add(DAY_NAMES[i]!);
-        if (i === end) break;
-        i = (i + 1) % 7;
-      }
-    }
-  } else {
-    for (const d of DAY_NAMES) {
-      if (prefix.toLowerCase().includes(d.toLowerCase())) daySet.add(d);
-    }
-  }
-  return daySet;
-}
-
-function shopAvailability(shop: Shop, now = new Date()) {
-  // If the shopkeeper has explicitly checked in/out, use that state.
-  if (shop.isOpen !== undefined) {
-    return { open: shop.isOpen, label: shop.isOpen ? "Open" : "Closed" };
-  }
-  if (!shop.openingTime || !shop.closingTime) return { open: true, label: "Open" };
-  const todayName = DAY_NAMES[now.getDay()];
-  const openDays = shopOpenDays(shop);
-  if (!openDays.has(todayName!)) return { open: false, label: "Closed" };
-  const toMinutes = (value: string) => {
-    const [hours = 0, minutes = 0] = value.split(":").map(Number);
-    return hours * 60 + minutes;
-  };
-  const current = now.getHours() * 60 + now.getMinutes();
-  const opening = toMinutes(shop.openingTime);
-  const closing = toMinutes(shop.closingTime);
-  const open =
-    opening <= closing
-      ? current >= opening && current < closing
-      : current >= opening || current < closing;
+function shopAvailability(shop: Shop) {
+  // Tag reflects the shopkeeper's check-in state only.
+  const open = shop.isOpen === true;
   return { open, label: open ? "Open" : "Closed" };
 }
 
@@ -796,9 +741,6 @@ function OrderPage() {
 
     // Only show shops visible to customers (approved, profile complete, services configured).
     result = result.filter((s) => isShopVisibleToCustomers(s));
-
-    // Always exclude closed shops.
-    result = result.filter((s) => shopAvailability(s).open);
 
     // Search filter.
     if (shopSearch.trim()) {
@@ -1503,7 +1445,7 @@ function OrderPage() {
                     >
                       {shopPages.length === 0 && (
                         <p className="py-8 text-center text-sm text-muted-foreground">
-                          No open print shops found. Try changing your search or filters.
+                          No print shops found. Try changing your search or filters.
                         </p>
                       )}
                       {shopPages.map((page, pageIdx) => (

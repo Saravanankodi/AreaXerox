@@ -4,18 +4,20 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
+import { openCashfreeCheckout } from "@/lib/cashfree/checkout";
 import { useNavigate } from "@/lib/navigation";
 import { inr } from "@/lib/pricing";
 import { openRazorpayCheckout } from "@/lib/razorpay/checkout";
 import {
-  createCheckoutSession,
-  verifyCheckoutPayment,
-} from "@/services/razorpay.service";
+  createUnifiedCheckoutSession,
+  verifyCashfreeCheckoutPayment,
+  verifyRazorpayCheckoutPayment,
+} from "@/services/payment.service";
 import type { Order } from "@/types";
 
 /**
  * "Pay now" card for orders placed with an online-capable payment method
- * (full / advance). Hidden once the Razorpay capture lands, and only shown to
+ * (full / advance). Hidden once the payment capture lands, and only shown to
  * the order's own customer.
  */
 export function PayNowCard({ order }: { order: Order }) {
@@ -25,7 +27,12 @@ export function PayNowCard({ order }: { order: Order }) {
 
   const onlineCapable =
     order.paymentMethod === "full" || order.paymentMethod === "advance";
-  const captured = !!order.razorpayPaymentId || !!order.razorpaySignature;
+  const captured =
+    !!order.cashfreePaymentId ||
+    !!order.razorpayPaymentId ||
+    !!order.razorpaySignature ||
+    order.paymentStatus === "paid";
+
   const isOwner =
     session?.role === "customer" && !!session.accountId && session.accountId === order.customerId;
 
@@ -36,20 +43,64 @@ export function PayNowCard({ order }: { order: Order }) {
     setBusy(true);
 
     try {
-      const sessionData = await createCheckoutSession(order.id);
+      const sessionData = await createUnifiedCheckoutSession(order.id);
 
       if (sessionData.paid) {
         toast.success("This order was already paid.");
         navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
         return;
       }
+
+      /* -----------------------------------------------------
+       * CASHFREE CHECKOUT FLOW
+       * --------------------------------------------------- */
+      if (sessionData.gateway === "cashfree") {
+        if (!sessionData.paymentSessionId || !sessionData.cashfreeOrderId) {
+          throw new Error("Could not start a Cashfree payment session.");
+        }
+
+        const res = await openCashfreeCheckout({
+          paymentSessionId: sessionData.paymentSessionId,
+          environment: sessionData.environment || "sandbox",
+          redirectTarget: "_modal",
+        });
+
+        if (res?.error) {
+          console.warn("Cashfree checkout popup error/dismiss:", res.error);
+        }
+
+        // Verify payment server-side with Cashfree API regardless of browser signal
+        try {
+          await verifyCashfreeCheckoutPayment({
+            orderId: order.id,
+            cashfreeOrderId: sessionData.cashfreeOrderId,
+          });
+          toast.success("Payment received. Thank you!");
+          navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
+        } catch (error) {
+          const errMessage = (error as Error).message || "";
+          if (errMessage.includes("not completed")) {
+            toast.info("Payment was cancelled or is pending.");
+          } else {
+            console.error("Cashfree verification error:", error);
+            toast.error(errMessage || "Payment verification pending.");
+          }
+        } finally {
+          setBusy(false);
+        }
+        return;
+      }
+
+      /* -----------------------------------------------------
+       * RAZORPAY CHECKOUT FLOW (FALLBACK / HISTORICAL)
+       * --------------------------------------------------- */
       if (!sessionData.key_id || !sessionData.razorpayOrderId) {
-        throw new Error(sessionData.error ?? "Could not start an online payment.");
+        throw new Error("Could not start a Razorpay payment session.");
       }
 
       await openRazorpayCheckout({
         key: sessionData.key_id,
-        amount: sessionData.amountPaise,
+        amount: Math.round(sessionData.amount * 100),
         currency: sessionData.currency || "INR",
         name: sessionData.name || order.shopName,
         description: sessionData.description || `Order ${order.id}`,
@@ -58,7 +109,7 @@ export function PayNowCard({ order }: { order: Order }) {
         theme: { color: "#2f6f4f" },
         handler: async (response) => {
           try {
-            await verifyCheckoutPayment({
+            await verifyRazorpayCheckoutPayment({
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
@@ -68,7 +119,7 @@ export function PayNowCard({ order }: { order: Order }) {
           } catch (error) {
             console.error("Payment verification error:", error);
             toast.error(
-              (error as Error).message || "Payment could not be verified yet.",
+              (error as Error).message || "Payment could not be verified yet."
             );
           } finally {
             setBusy(false);

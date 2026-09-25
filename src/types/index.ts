@@ -579,6 +579,16 @@ export interface Shop {
    */
   razorpayRequirements?: RazorpayRequirement[];
 
+  /**
+   * Cashfree Easy Split Vendor ID for automated shopkeeper payouts.
+   */
+  cashfreeVendorId?: string;
+
+  /**
+   * Cashfree vendor onboarding status.
+   */
+  cashfreeOnboardingStatus?: "not_started" | "processing" | "activated" | "failed";
+
   frontImage?: string;
 
   interiorImage?: string;
@@ -812,9 +822,29 @@ export interface OrderPayment {
   razorpayTransferIds?: string[];
 
   /**
-   * Whether the shopkeeper share has been transferred to the linked account.
+   * Razorpay payout status.
    */
   razorpayPayoutStatus?: RazorpayPayoutStatus;
+
+  /**
+   * Cashfree Order ID created for this order's online payment.
+   */
+  cashfreeOrderId?: string;
+
+  /**
+   * Cashfree Payment ID returned after payment completion.
+   */
+  cashfreePaymentId?: string;
+
+  /**
+   * Cashfree Payment Session ID.
+   */
+  cashfreePaymentSessionId?: string;
+
+  /**
+   * Payment gateway used for processing payment.
+   */
+  paymentGateway?: "razorpay" | "cashfree";
 }
 
 
@@ -922,6 +952,26 @@ export interface Order {
    * Whether the shopkeeper share has been transferred to the linked account.
    */
   razorpayPayoutStatus?: RazorpayPayoutStatus;
+
+  /**
+   * Cashfree Order ID created for this order's online payment.
+   */
+  cashfreeOrderId?: string;
+
+  /**
+   * Cashfree Payment ID returned after payment completion.
+   */
+  cashfreePaymentId?: string;
+
+  /**
+   * Cashfree Payment Session ID.
+   */
+  cashfreePaymentSessionId?: string;
+
+  /**
+   * Payment gateway used for processing payment.
+   */
+  paymentGateway?: "razorpay" | "cashfree";
 
   status: OrderStatus;
 
