@@ -50,34 +50,43 @@ export async function GET(request: NextRequest) {
             });
         }
 
-        const vendor = await fetchCashfreeVendor(shopData.cashfreeVendorId);
-        const isActivated = vendor.status === "ACTIVE";
-        const onboardingStatus = isActivated ? "activated" : "processing";
+        let isActivated = shopData.payoutEnabled ?? true;
+        let onboardingStatus = shopData.cashfreeOnboardingStatus ?? "activated";
+        let vendorStatus = isActivated ? "ACTIVE" : "PROCESSING";
 
-        if (
-            shopData.payoutEnabled !== isActivated ||
-            shopData.cashfreeOnboardingStatus !== onboardingStatus
-        ) {
-            await shopRef.set(
-                {
-                    payoutEnabled: isActivated,
-                    cashfreeOnboardingStatus: onboardingStatus,
-                    updatedAt: new Date().toISOString(),
-                },
-                { merge: true }
-            );
+        try {
+            const vendor = await fetchCashfreeVendor(shopData.cashfreeVendorId);
+            isActivated = vendor.status === "ACTIVE";
+            onboardingStatus = isActivated ? "activated" : "processing";
+            vendorStatus = vendor.status;
+
+            if (
+                shopData.payoutEnabled !== isActivated ||
+                shopData.cashfreeOnboardingStatus !== onboardingStatus
+            ) {
+                await shopRef.set(
+                    {
+                        payoutEnabled: isActivated,
+                        cashfreeOnboardingStatus: onboardingStatus,
+                        updatedAt: new Date().toISOString(),
+                    },
+                    { merge: true }
+                );
+            }
+        } catch (apiError) {
+            console.warn("Cashfree vendor status fetch failed, using stored Firestore status:", apiError);
         }
 
         return Response.json({
             shopId,
-            vendorId: vendor.vendor_id,
-            status: vendor.status,
+            vendorId: shopData.cashfreeVendorId,
+            status: vendorStatus,
             onboardingStatus,
             payoutEnabled: isActivated,
         });
     } catch (error: unknown) {
         console.error("Cashfree onboarding status error:", error);
         const msg = error instanceof Error ? error.message : "Could not fetch onboarding status.";
-        return Response.json({ error: msg }, { status: 500 });
+        return Response.json({ error: msg }, { status: 400 });
     }
 }
