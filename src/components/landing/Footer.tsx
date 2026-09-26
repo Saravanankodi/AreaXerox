@@ -400,18 +400,18 @@ export default function Footer() {
               </div>
 
               <div className="mt-1 flex items-center justify-center gap-1.5">
-                <span className="h-[1px] w-7 bg-[#1687ff]" />
+                <span className="h-px w-7 bg-[#1687ff]" />
 
                 <span className="text-[6px] font-bold tracking-[0.3em] text-white">
                   YOUR PRINTING PARTNER
                 </span>
 
-                <span className="h-[1px] w-7 bg-[#1687ff]" />
+                <span className="h-px w-7 bg-[#1687ff]" />
               </div>
             </a>
 
             {/* DESCRIPTION */}
-            <p className="mt-7 max-w-[530px] text-sm leading-7 text-[#79a2ca]">
+            <p className="mt-7 max-w-132.5 text-sm leading-7 text-[#79a2ca]">
               Your comprehensive digital printing partner. Upload
               effortlessly, compare verified local hubs, skip queue
               bottlenecks, and receive pristine printed work on demand.

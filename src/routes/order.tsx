@@ -33,7 +33,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { DocumentUploadCard } from "@/components/home/DocumentUploadCard";
 import { cn } from "@/lib/utils";
 import { newOrderId, useStore } from "@/lib/store";
-import { useAuth, healAccountIdentity } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { uploadFileToCloudinary } from "@/lib/cloudinary";
 import { calculateDocumentPrices, calculateOrderPrice, inr, paymentSplit } from "@/lib/pricing";
 import { detectPageCount } from "@/lib/document-pages";
@@ -44,7 +44,7 @@ import { formatTime12h } from "@/lib/time";
 import { isShopVisibleToCustomers } from "@/lib/shop-status";
 import { createNotification } from "@/lib/notifications";
 import { ACCEPTED_UPLOAD_TYPES, isSupportedUpload } from "@/lib/upload-config";
-import { signInWithGoogle } from "@/lib/auth-google";
+import { useGoogleCustomerSignIn } from "@/lib/useGoogleCustomerSignIn";
 import { getUserProfile } from "@/services/user.service";
 import type {
   Address,
@@ -650,7 +650,8 @@ function OrderPage() {
     reviews,
     addNotification,
   } = useStore();
-  const { session, signIn, getAllAccounts, createAccount, updateAccount } = useAuth();
+  const { session } = useAuth();
+  const { loading: googleLoading, signInAsCustomer } = useGoogleCustomerSignIn();
 
   const [step, setStep] = useState(0);
   const [docs, setDocs] = useState<DocumentFile[]>([]);
@@ -912,6 +913,12 @@ function OrderPage() {
       }),
     );
 
+    // Page detection done — clear uploading indicator. The upload card now
+    // derives its file list from docs via the fileNames prop. This must run
+    // even when uploads failed, otherwise the card stays stuck on
+    // "Preparing your files…" forever.
+    setUploadingNames([]);
+
     if (uploadFailures > 0) {
       toast.error(`${uploadFailures} upload${uploadFailures > 1 ? "s" : ""} failed`, {
         description:
@@ -919,10 +926,6 @@ function OrderPage() {
       });
       return;
     }
-
-    // Page detection done — clear uploading indicator. The upload card now
-    // derives its file list from docs via the fileNames prop.
-    setUploadingNames([]);
 
     // Show final toast after all detections complete.
     const needsReview = pendingDocs.filter((item) => !item.document.pageCountDetected).length;
@@ -1023,8 +1026,12 @@ function OrderPage() {
 
   const paper = shop.paperTypes.find((p) => p.id === config.paperTypeId);
 
+  const uploadsPending = docs.some((doc) => doc.detectingPages);
+
   const canContinue = () => {
-    if (step === 0) return docs.length > 0;
+    // Step 0 waits for the real Cloudinary upload, not just the local file
+    // selection — docs entries are created before their upload starts.
+    if (step === 0) return docs.length > 0 && !uploadsPending;
     if (step === 1) return shopConfirmed;
     if (step === 2) return fulfillment === "pickup" || !!address;
     if (step === 3)
@@ -1035,7 +1042,11 @@ function OrderPage() {
   };
 
   const stepBlockReason = () => {
-    if (step === 0) return "Add at least one document to continue.";
+    if (step === 0) {
+      return uploadsPending
+        ? "Wait for your files to finish uploading."
+        : "Add at least one document to continue.";
+    }
     if (step === 1) return "Select a shop to continue.";
     if (step === 2) return "Select a delivery address.";
     if (step === 3) return "Choose a payment method accepted by this shop.";
@@ -1302,11 +1313,17 @@ function OrderPage() {
                       </Button>
                     </div>
                   )}
+                  {!canContinue() && (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      {stepBlockReason()}
+                    </p>
+                  )}
                   <div className="mt-5 flex items-center justify-between gap-3 border-t border-border pt-5">
                     <Button variant="outline" onClick={() => setStep(0)} disabled>
                       <ChevronLeft className="h-4 w-4" /> Back
                     </Button>
                     <Button
+                      disabled={!canContinue()}
                       onClick={() => {
                         if (!canContinue()) {
                           toast.error(stepBlockReason());
@@ -1315,7 +1332,8 @@ function OrderPage() {
                         setStep(1);
                       }}
                     >
-                      Continue <ChevronRight className="h-4 w-4" />
+                      {uploadsPending ? "Uploading…" : "Continue"}{" "}
+                      <ChevronRight className="h-4 w-4" />
                     </Button>
                   </div>
                 </SectionCard>
@@ -2015,50 +2033,11 @@ function OrderPage() {
               variant="outline"
               className="w-full"
               size="lg"
+              disabled={googleLoading}
               onClick={async () => {
-                const result = await signInWithGoogle("customer");
-                if (!result.ok || !result.user) {
-                  toast.error(result.error ?? "Google sign-in failed.");
-                  return;
-                }
+                const signedIn = await signInAsCustomer();
+                if (!signedIn) return;
                 setAuthDialogOpen(false);
-                const { user } = result;
-                const accounts = await getAllAccounts();
-                let account = accounts.find(
-                  (a) => a.email.toLowerCase() === user.email.toLowerCase() && a.role === "customer",
-                );
-                if (!account) {
-                  const created = await createAccount(user.email, `google-${user.sub}`, "customer", user.name);
-                  if (typeof created === "string") {
-                    toast.error(created);
-                    return;
-                  }
-                  account = created;
-                }
-                await healAccountIdentity(account.id, user);
-                const sessionName = account.name?.trim() || user.name;
-                signIn({
-                  accountId: account.id,
-                  role: "customer",
-                  email: account.email,
-                  name: sessionName,
-                  phone: account.phone,
-                  registrationStatus: account.registrationStatus,
-                  accountStatus: account.accountStatus,
-                });
-                if (account.registrationStatus === "incomplete") {
-                  updateAccount(account.id, { registrationStatus: "complete" });
-                  signIn({
-                    accountId: account.id,
-                    role: "customer",
-                    email: account.email,
-                    name: sessionName,
-                    phone: account.phone,
-                    registrationStatus: "complete",
-                    accountStatus: account.accountStatus,
-                  });
-                }
-                toast.success("Signed in with Google");
                 navigate({ to: "/order" });
               }}
             >

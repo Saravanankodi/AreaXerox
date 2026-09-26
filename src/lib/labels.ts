@@ -86,6 +86,23 @@ export function nextActionLabel(next: OrderStatus): string {
   }
 }
 
+/**
+ * Statuses a customer may review. Starts at the first "job is finished"
+ * status so a review is never locked behind a click the customer does not
+ * control. REJECTED is excluded: a cancelled order can never be reviewed.
+ */
+export const REVIEWABLE_ORDER_STATUSES: OrderStatus[] = [
+  "READY_PICKUP",
+  "READY_DELIVERY",
+  "OUT_FOR_DELIVERY",
+  "DELIVERED",
+  "COMPLETED",
+];
+
+export function isOrderReviewable(status: OrderStatus): boolean {
+  return REVIEWABLE_ORDER_STATUSES.includes(status);
+}
+
 export const fulfillmentLabel: Record<Fulfillment, string> = {
   pickup: "Pickup",
   delivery: "Delivery",

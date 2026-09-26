@@ -13,11 +13,15 @@ import { useAuth, healAccountIdentity } from "@/lib/auth";
 
 import { useStore } from "@/lib/store";
 
-import { GoogleAuthProvider, signInWithEmailAndPassword, signInWithPopup } from "firebase/auth";
+import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { AccountRole } from "@/types";
+import { signInWithGoogle } from "@/lib/auth-google";
+import {
+  AccountRole,
+  AccountStatus,
+  UserAccount,
+} from "@/types";
 import Image from "next/image";
-
 export function AuthPage({
   role,
   mode,
@@ -30,7 +34,9 @@ export function AuthPage({
   const {
     signIn,
     createAccount,
+    createAccountForAuthUser,
     getAccount,
+    getAccountByEmail,
   } = useAuth();
 
   const { orderDraft } = useStore();
@@ -52,6 +58,196 @@ export function AuthPage({
     : isShop
       ? "/auth/shop/create-account"
       : "/auth/customer/create-account";
+
+  /*
+   * ==========================================
+   * POST SIGN-IN ACCESS CONTROL
+   *
+   * Shared by the email/password and Google
+   * flows so a shopkeeper can never slip past
+   * the approval gates on one door only.
+   * ==========================================
+   */
+
+  const completeSignIn = async (
+    account: UserAccount,
+    identity: {
+      displayName?: string | null;
+      email?: string | null;
+      phoneNumber?: string | null;
+    },
+  ): Promise<void> => {
+    const sessionFor = (
+      accountStatus: AccountStatus,
+    ) => ({
+      accountId: account.id,
+      role: account.role,
+      email: account.email,
+      name:
+        account.name?.trim() ||
+        identity.displayName?.trim() ||
+        account.email.split("@")[0] ||
+        (isShop ? "Shopkeeper" : "Customer"),
+      phone: account.phone ?? "",
+      registrationStatus:
+        account.registrationStatus,
+      accountStatus,
+    });
+
+    if (role === "shopkeeper") {
+      /*
+       * Registration is incomplete.
+       */
+      if (
+        account.registrationStatus ===
+        "incomplete"
+      ) {
+        signIn(sessionFor(account.accountStatus));
+
+        toast.info(
+          "Complete your shop registration to continue.",
+        );
+
+        navigate({ to: "/auth/shop/register" });
+
+        return;
+      }
+
+      /*
+       * Waiting for admin approval.
+       */
+      if (account.accountStatus === "pending") {
+        signIn(sessionFor("pending"));
+
+        toast.info(
+          "Your shop is waiting for admin approval.",
+        );
+
+        navigate({ to: "/shop/pending" });
+
+        return;
+      }
+
+      /*
+       * Application rejected.
+       */
+      if (account.accountStatus === "rejected") {
+        signIn(sessionFor("rejected"));
+
+        toast.error(
+          "Your shop application was rejected.",
+        );
+
+        navigate({ to: "/shop/rejected" });
+
+        return;
+      }
+
+      /*
+       * Account suspended.
+       */
+      if (account.accountStatus === "suspended") {
+        signIn(sessionFor("suspended"));
+
+        toast.error(
+          "Your shopkeeper account has been suspended.",
+        );
+
+        navigate({ to: "/shop/suspended" });
+
+        return;
+      }
+
+      /*
+       * Account disabled.
+       */
+      if (account.accountStatus === "disabled") {
+        signIn(sessionFor("disabled"));
+
+        toast.error(
+          "Your shopkeeper account has been disabled.",
+        );
+
+        navigate({ to: "/shop/disabled" });
+
+        return;
+      }
+    }
+
+    if (role === "customer") {
+      /*
+       * Customer registration/profile incomplete.
+       */
+      if (
+        account.registrationStatus ===
+        "incomplete"
+      ) {
+        signIn(sessionFor(account.accountStatus));
+
+        toast.info(
+          "Complete your profile to continue.",
+        );
+
+        navigate({ to: "/auth/customer/register" });
+
+        return;
+      }
+
+      /*
+       * Customer account disabled.
+       */
+      if (account.accountStatus === "disabled") {
+        toast.error("Your account has been disabled.");
+
+        await auth.signOut();
+
+        return;
+      }
+    }
+
+    // Repair the account doc if its identity was ever wiped by an empty save.
+    await healAccountIdentity(account.id, identity);
+
+    /*
+     * Customer account suspended.
+     */
+    if (
+      role === "customer" &&
+      account.accountStatus === "suspended"
+    ) {
+      toast.error("Your account has been suspended.");
+
+      await auth.signOut();
+
+      return;
+    }
+
+    /*
+     * ==========================================
+     * NORMAL LOGIN
+     * ==========================================
+     */
+
+    signIn(sessionFor(account.accountStatus));
+
+    toast.success("Welcome back", {
+      description: "Your session is ready.",
+    });
+
+    /*
+     * Shopkeepers go to shop dashboard.
+     *
+     * Customers return to an existing order
+     * when an order draft exists.
+     */
+    navigate({
+      to: isShop
+        ? "/shop"
+        : orderDraft
+          ? "/order"
+          : "/",
+    });
+  };
 
   const submit = async (
     event: FormEvent<HTMLFormElement>,
@@ -269,290 +465,7 @@ export function AuthPage({
         return;
       }
 
-      /*
-       * ==========================================
-       * SHOPKEEPER ACCESS CONTROL
-       * ==========================================
-       */
-
-      if (role === "shopkeeper") {
-        /*
-         * Registration is incomplete.
-         */
-        if (
-          account.registrationStatus ===
-          "incomplete"
-        ) {
-          signIn({
-            accountId: account.id,
-            role: account.role,
-            email: account.email,
-            name:
-              account.name ||
-              credential.user.displayName ||
-              account.email.split("@")[0] ||
-              "Shopkeeper",
-            phone: account.phone ?? "",
-            registrationStatus:
-              account.registrationStatus,
-            accountStatus:
-              account.accountStatus,
-          });
-
-          toast.info(
-            "Complete your shop registration to continue.",
-          );
-
-          navigate({
-            to: "/auth/shop/register",
-          });
-
-          return;
-        }
-
-        /*
-         * Waiting for admin approval.
-         */
-        if (
-          account.accountStatus === "pending"
-        ) {
-          signIn({
-            accountId: account.id,
-            role: account.role,
-            email: account.email,
-            name:
-              account.name ||
-              credential.user.displayName ||
-              account.email.split("@")[0] ||
-              "Shopkeeper",
-            phone: account.phone ?? "",
-            registrationStatus:
-              account.registrationStatus,
-            accountStatus: "pending",
-          });
-
-          toast.info(
-            "Your shop is waiting for admin approval.",
-          );
-
-          navigate({
-            to: "/shop/pending",
-          });
-
-          return;
-        }
-
-        /*
-         * Application rejected.
-         */
-        if (
-          account.accountStatus === "rejected"
-        ) {
-          signIn({
-            accountId: account.id,
-            role: account.role,
-            email: account.email,
-            name:
-              account.name ||
-              credential.user.displayName ||
-              account.email.split("@")[0] ||
-              "Shopkeeper",
-            phone: account.phone ?? "",
-            registrationStatus:
-              account.registrationStatus,
-            accountStatus: "rejected",
-          });
-
-          toast.error(
-            "Your shop application was rejected.",
-          );
-
-          navigate({
-            to: "/shop/rejected",
-          });
-
-          return;
-        }
-
-        /*
-         * Account suspended.
-         */
-        if (
-          account.accountStatus === "suspended"
-        ) {
-          signIn({
-            accountId: account.id,
-            role: account.role,
-            email: account.email,
-            name:
-              account.name ||
-              credential.user.displayName ||
-              account.email.split("@")[0] ||
-              "Shopkeeper",
-            phone: account.phone ?? "",
-            registrationStatus:
-              account.registrationStatus,
-            accountStatus: "suspended",
-          });
-
-          toast.error(
-            "Your shopkeeper account has been suspended.",
-          );
-
-          navigate({
-            to: "/shop/suspended",
-          });
-
-          return;
-        }
-
-        /*
-         * Account disabled.
-         */
-        if (
-          account.accountStatus === "disabled"
-        ) {
-          signIn({
-            accountId: account.id,
-            role: account.role,
-            email: account.email,
-            name:
-              account.name ||
-              credential.user.displayName ||
-              account.email.split("@")[0] ||
-              "Shopkeeper",
-            phone: account.phone ?? "",
-            registrationStatus:
-              account.registrationStatus,
-            accountStatus: "disabled",
-          });
-
-          toast.error(
-            "Your shopkeeper account has been disabled.",
-          );
-
-          navigate({
-            to: "/shop/disabled",
-          });
-
-          return;
-        }
-      }
-
-      /*
-       * ==========================================
-       * CUSTOMER ACCESS CONTROL
-       * ==========================================
-       */
-
-      if (role === "customer") {
-        /*
-         * Customer registration/profile incomplete.
-         */
-        if (
-          account.registrationStatus ===
-          "incomplete"
-        ) {
-          signIn({
-            accountId: account.id,
-            role: account.role,
-            email: account.email,
-            name:
-              account.name ||
-              credential.user.displayName ||
-              account.email.split("@")[0] ||
-              "Customer",
-            phone: account.phone ?? "",
-            registrationStatus:
-              account.registrationStatus,
-            accountStatus:
-              account.accountStatus,
-          });
-
-          toast.info(
-            "Complete your profile to continue.",
-          );
-
-          navigate({
-            to: "/auth/customer/register",
-          });
-
-          return;
-        }
-
-        /*
-         * Customer account disabled.
-         */
-        if (
-          account.accountStatus === "disabled"
-        ) {
-          toast.error(
-            "Your account has been disabled.",
-          );
-
-await auth.signOut();
-
-        return;
-      }
-
-      // Repair the account doc if its identity was ever wiped by an empty save.
-      await healAccountIdentity(account.id, credential.user);
-
-      /*
-         * Customer account suspended.
-         */
-        if (
-          account.accountStatus === "suspended"
-        ) {
-          toast.error(
-            "Your account has been suspended.",
-          );
-
-          await auth.signOut();
-
-          return;
-        }
-      }
-
-      /*
-       * ==========================================
-       * NORMAL LOGIN
-       * ==========================================
-       */
-
-      signIn({
-        accountId: account.id,
-        role: account.role,
-        email: account.email,
-        name:
-          account.name ||
-          credential.user.displayName ||
-          account.email.split("@")[0] ||
-          "Customer",
-        phone: account.phone ?? "",
-        registrationStatus:
-          account.registrationStatus,
-        accountStatus:
-          account.accountStatus,
-      });
-
-      toast.success("Welcome back", {
-        description: "Your session is ready.",
-      });
-
-      /*
-       * Shopkeepers go to shop dashboard.
-       *
-       * Customers return to an existing order
-       * when an order draft exists.
-       */
-      navigate({
-        to: isShop
-          ? "/shop"
-          : orderDraft
-            ? "/order"
-            : "/",
-      });
+      await completeSignIn(account, credential.user);
     } catch (error) {
       console.error(
         "Authentication error:",
@@ -732,24 +645,75 @@ await auth.signOut();
               setLoading(true);
 
               try {
-                const provider = new GoogleAuthProvider();
+                const result =
+                  await signInWithGoogle();
 
-                const credential = await signInWithPopup(
-                  auth,
-                  provider,
-                );
+                if (
+                  !result.ok ||
+                  !result.user
+                ) {
+                  if (!result.cancelled) {
+                    toast.error(
+                      result.error ??
+                        "Unable to sign in with Google. Please try again.",
+                    );
+                  }
 
-                const user = credential.user;
+                  return;
+                }
 
-                const account = await getAccount(user.uid);
+                const googleUser = result.user;
+
+                /*
+                 * The Firestore account is keyed on the Firebase
+                 * uid, so a brand new Google identity has no
+                 * account document yet — that is the sign-up.
+                 */
+                let account =
+                  await getAccount(googleUser.uid);
 
                 if (!account) {
-                  toast.error(
-                    "Your Google account profile could not be found.",
-                  );
+                  if (!isCreate) {
+                    const existing =
+                      await getAccountByEmail(
+                        googleUser.email,
+                      );
 
-                  await auth.signOut();
-                  return;
+                    toast.error(
+                      existing
+                        ? `An account with this email already exists${
+                            existing.role !== role
+                              ? ` as a ${existing.role}`
+                              : ""
+                          }. Sign in with your password instead.`
+                        : "No account is linked to this Google account. Create an account first.",
+                    );
+
+                    await auth.signOut();
+
+                    return;
+                  }
+
+                  const created =
+                    await createAccountForAuthUser(
+                      googleUser.uid,
+                      {
+                        email: googleUser.email,
+                        name: googleUser.name,
+                        role,
+                        phone: phone.trim(),
+                      },
+                    );
+
+                  if (typeof created === "string") {
+                    toast.error(created);
+
+                    await auth.signOut();
+
+                    return;
+                  }
+
+                  account = created;
                 }
 
                 if (account.role !== role) {
@@ -758,48 +722,15 @@ await auth.signOut();
                   );
 
                   await auth.signOut();
+
                   return;
                 }
 
-                // Repair the account doc if its identity was ever wiped by an empty save.
-                await healAccountIdentity(account.id, user);
-
-                signIn({
-                  accountId: account.id,
-                  role: account.role,
-                  email: account.email,
-                  name:
-                    account.name ||
-                    user.displayName ||
-                    user.email?.split("@")[0] ||
-                    "Customer",
-                  phone: account.phone ?? "",
-                  registrationStatus:
-                    account.registrationStatus,
-                  accountStatus:
-                    account.accountStatus,
+                await completeSignIn(account, {
+                  displayName: googleUser.name,
+                  email: googleUser.email,
+                  phoneNumber: phone.trim() || null,
                 });
-
-                toast.success("Signed in with Google", {
-                  description: "Your session is ready.",
-                });
-
-                navigate({
-                  to: isShop
-                    ? "/shop"
-                    : orderDraft
-                      ? "/order"
-                      : "/",
-                });
-              } catch (error: unknown) {
-                console.error(
-                  "Google sign-in error:",
-                  error,
-                );
-
-                toast.error(
-                  "Unable to sign in with Google. Please try again.",
-                );
               } finally {
                 setLoading(false);
               }
