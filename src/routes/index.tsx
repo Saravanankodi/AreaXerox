@@ -303,6 +303,7 @@ import { motion } from 'motion/react';
 import HowItWorks from "@/components/landing/HowItWorks";
 import FeatureBento from "@/components/landing/FeatureBento";
 import ConductCard from "@/components/landing/ConductCard";
+import Footer from "@/components/landing/Footer";
 export const Route = createFileRoute("/")({ component: Index });
 
 
@@ -325,7 +326,7 @@ function Index() {
         {/* <Hero /> */}
         {/* <div className="home-orb home-orb-one" /> <div className="home-orb home-orb-two" /> */}
 
-        <section className="relative pt-24 pb-16 sm:pt-32 sm:pb-20 md:pt-20 md:pb-28 overflow-hidden bg-[#07090e]">
+        <section id="upload" className="relative pt-24 pb-16 sm:pt-32 sm:pb-20 md:pt-20 md:pb-28 overflow-hidden bg-[#07090e]">
           {/* Dynamic Background Glow Effects */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-125 sm:h-150 pointer-events-none overflow-hidden">
             <div className="absolute -top-32 left-1/4 w-87.5 sm:w-125 h-87.5 sm:h-125 bg-blue-600/15 rounded-full blur-[120px] sm:blur-[140px] animate-pulse-slow" />
@@ -452,9 +453,9 @@ function Index() {
         <ConductCard />
        
       </main>
-      {/*
-      <Footer onScrollToConduct={scrollToConduct} />
-      */}
+      
+      <Footer />
+     
     </div>
 
     {platform === "web" && <div className="hidden sm:block">

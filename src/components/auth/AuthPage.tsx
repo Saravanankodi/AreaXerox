@@ -16,6 +16,7 @@ import { useStore } from "@/lib/store";
 import { GoogleAuthProvider, signInWithEmailAndPassword, signInWithPopup } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { AccountRole } from "@/types";
+import Image from "next/image";
 
 export function AuthPage({
   role,
@@ -567,18 +568,21 @@ await auth.signOut();
   };
 
   return (
-    <main className="grid min-h-screen bg-background lg:grid-cols-2">
+    <main className="min-h-screen bg-background lg:grid lg:grid-cols-2">
       {/* ========================================
           LEFT IMAGE PANEL
           ======================================== */}
 
-      <section
-        className="hidden bg-cover bg-center bg-no-repeat p-12 text-primary-foreground lg:flex lg:flex-col lg:justify-between"
-        style={{
-          backgroundImage:
-            "url('/loginimage.png')",
-        }}
-      />
+      <section className="relative hidden h-screen overflow-hidden lg:sticky lg:top-0 lg:block">
+        <Image
+          src="/newloginimage.png"
+          alt="XEROXMATE Login"
+          fill
+          priority
+          sizes="50vw"
+          className="object-cover"
+        />
+      </section>
 
       {/* ========================================
           AUTH FORM

@@ -131,12 +131,34 @@ export function CustomerShell({
           <div className="container-page flex flex-col gap-2 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
             <p>© {new Date().getFullYear()} XEROXMATE · Print smarter, skip the queue.</p>
             <div className="flex gap-4">
+
+              <Link
+                to="/footerfile/terms"
+                className="block text-sm text-slate-400 transition hover:text-white"
+              >
+                Terms & Conditions
+              </Link>
+
+              <Link
+                to="/footerfile/privacy"
+                className="block text-sm text-slate-400 transition hover:text-white"
+              >
+                Privacy Policy
+              </Link>
+
+              <Link
+                to="/footerfile/refund-policy"
+                className="block text-sm text-slate-400 transition hover:text-white"
+              >
+                Refund / Cancellation Policy
+              </Link>
               <Link to="/support" className="hover:text-foreground">
                 Support
               </Link>
               <Link to="/settings" className="hover:text-foreground">
                 Settings
               </Link>
+
             </div>
           </div>
         </footer>

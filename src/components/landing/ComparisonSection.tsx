@@ -31,7 +31,7 @@ export default function ComparisonSection() {
   ];
 
   return (
-    <section className="py-14 sm:py-20 md:py-24 bg-[#07090e] border-y border-slate-800/80">
+    <section id='comparision' className="py-14 sm:py-20 md:py-24 bg-[#07090e] border-y border-slate-800/80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto space-y-2.5 sm:space-y-3 mb-10 sm:mb-16">
           <div className="inline-flex items-center gap-2 px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-full bg-blue-950/70 border border-blue-800/60 text-blue-400 text-[10px] sm:text-xs font-bold uppercase tracking-wider">
@@ -91,7 +91,7 @@ export default function ComparisonSection() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.35, delay: idx * 0.06 }}
-              className="p-4 rounded-2xl bg-gradient-to-b from-slate-900/95 to-slate-950/95 border border-slate-800/90 shadow-lg space-y-3"
+              className="p-4 rounded-2xl bg-linear-to-b from-slate-900/95 to-slate-950/95 border border-slate-800/90 shadow-lg space-y-3"
             >
               <div className="text-sm font-bold text-white font-['Outfit'] pb-2 border-b border-slate-800/70">
                 {row.feature}

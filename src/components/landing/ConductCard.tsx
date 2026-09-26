@@ -426,11 +426,11 @@ export default function ConductCard() {
       className="relative overflow-hidden border-t border-slate-800/80 bg-[#07090e] py-14 sm:py-20 md:py-24"
     >
       {/* Background Glow */}
-      <div className="pointer-events-none absolute left-1/2 top-1/2 h-[350px] w-[350px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-tr from-blue-600/10 via-indigo-600/15 to-purple-600/10 blur-[100px] sm:h-[400px] sm:w-[600px] sm:blur-[140px]" />
+      <div className="pointer-events-none absolute left-1/2 top-1/2 h-87.5 w-87.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-linear-to-tr from-blue-600/10 via-indigo-600/15 to-purple-600/10 blur-[100px] sm:h-100 sm:w-150 sm:blur-[140px]" />
 
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
-        <div className="mx-auto mb-8 max-w-2xl space-y-2.5 text-center sm:mb-12 sm:space-y-3">
+        <div className="mx-auto mb-8 max-w-3xl space-y-2.5 text-center sm:mb-12 sm:space-y-3">
           <div className="inline-flex items-center gap-2 rounded-full border border-blue-800/60 bg-blue-950/70 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-400 sm:px-3.5 sm:py-1.5 sm:text-xs">
             <span>XEROXMATE</span>
           </div>
@@ -452,10 +452,10 @@ export default function ConductCard() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5 }}
-              className="relative rounded-2xl border border-slate-800 bg-gradient-to-b from-slate-900/95 via-[#0c1220]/95 to-slate-950/95 p-5 shadow-[0_25px_60px_rgba(0,0,0,0.85)] backdrop-blur-2xl sm:rounded-3xl sm:p-10 md:p-12"
+              className="relative rounded-2xl border border-slate-800 bg-linear-to-b from-slate-900/95 via-[#0c1220]/95 to-slate-950/95 p-5 shadow-[0_25px_60px_rgba(0,0,0,0.85)] backdrop-blur-2xl sm:rounded-3xl sm:p-10 md:p-12"
             >
               {/* Gradient Top Border */}
-              <div className="absolute inset-x-6 top-0 h-1 rounded-t-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 sm:inset-x-8" />
+              <div className="absolute inset-x-6 top-0 h-1 rounded-t-full bg-linear-to-r from-blue-500 via-indigo-500 to-purple-500 sm:inset-x-8" />
 
               <div className="space-y-1 border-b border-slate-800 pb-4 text-center sm:pb-6">
                 <h3 className="font-['Outfit'] text-xl font-extrabold text-white sm:text-2xl">
@@ -476,7 +476,7 @@ export default function ConductCard() {
                       Phone
                     </p>
                     <p className="mt-1 text-sm text-slate-200">
-                      +91 98765 43210
+                      +91 9092579460
                     </p>
                   </div>
                 </div>
@@ -492,7 +492,8 @@ export default function ConductCard() {
                       Email
                     </p>
                     <p className="mt-1 text-sm text-slate-200">
-                      info@xeroxmate.com
+
+                      desflyer.tech@gmail.com
                     </p>
                   </div>
                 </div>
@@ -588,10 +589,10 @@ export default function ConductCard() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5 }}
-              className="relative rounded-2xl border border-slate-800 bg-gradient-to-b from-slate-900/95 via-[#0c1220]/95 to-slate-950/95 p-5 shadow-[0_25px_60px_rgba(0,0,0,0.85)] backdrop-blur-2xl sm:rounded-3xl sm:p-10 md:p-12"
+              className="relative rounded-2xl border border-slate-800 bg-linear-to-b from-slate-900/95 via-[#0c1220]/95 to-slate-950/95 p-5 shadow-[0_25px_60px_rgba(0,0,0,0.85)] backdrop-blur-2xl sm:rounded-3xl sm:p-10 md:p-12"
             >
               {/* Gradient Top Border */}
-              <div className="absolute inset-x-6 top-0 h-1 rounded-t-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 sm:inset-x-8" />
+              <div className="absolute inset-x-6 top-0 h-1 rounded-t-full bg-linear-to-r from-blue-500 via-indigo-500 to-purple-500 sm:inset-x-8" />
 
               <div className="space-y-1 border-b border-slate-800 pb-4 text-center sm:pb-6">
                 <h3 className="font-['Outfit'] text-xl font-extrabold text-white sm:text-2xl">
@@ -810,7 +811,7 @@ export default function ConductCard() {
                     HONEYPOT
                 ================================================== */}
                   <div
-                    className="absolute -left-[9999px] top-auto h-px w-px overflow-hidden"
+                    className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden"
                     aria-hidden="true"
                   >
                     <label htmlFor="conduct-website">
@@ -867,7 +868,7 @@ export default function ConductCard() {
                     type="submit"
                     disabled={submitting}
                     aria-busy={submitting}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-blue-400/40 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 py-3.5 text-sm font-bold text-white shadow-xl shadow-blue-600/30 transition-all duration-200 hover:scale-[1.01] hover:from-blue-500 hover:to-indigo-500 hover:shadow-blue-500/50 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100 sm:py-4 sm:text-base"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-blue-400/40 bg-linear-to-r from-blue-600 via-indigo-600 to-blue-600 py-3.5 text-sm font-bold text-white shadow-xl shadow-blue-600/30 transition-all duration-200 hover:scale-[1.01] hover:from-blue-500 hover:to-indigo-500 hover:shadow-blue-500/50 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100 sm:py-4 sm:text-base"
                   >
                     {submitting ? (
                       <>
