@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Star, CheckCircle } from "lucide-react";
+import { Star, CheckCircle, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
 import { createNotification } from "@/lib/notifications";
+import { isOrderReviewable } from "@/lib/labels";
 import type { Order, Review } from "@/types";
 
 export function ReviewCard({ order }: { order: Order }) {
@@ -25,10 +26,20 @@ export function ReviewCard({ order }: { order: Order }) {
     return <SubmittedReview review={existingReview} />;
   }
 
+  const reviewable = isOrderReviewable(order.status);
+
   const needsDescription = rating > 0 && rating <= 3;
   const displayRating = hoveredStar || rating;
 
   function handleSubmit() {
+    if (!reviewable) {
+      toast.error(
+        order.status === "REJECTED"
+          ? "This order was rejected, so it cannot be reviewed."
+          : "You can review this order once the shop marks it ready.",
+      );
+      return;
+    }
     if (rating === 0) {
       toast.error("Please select a rating.");
       return;
@@ -75,14 +86,25 @@ export function ReviewCard({ order }: { order: Order }) {
       <h2 className="text-base font-semibold">Review {order.shopName}</h2>
       <p className="mt-2 text-sm text-muted-foreground">How was your experience?</p>
 
+      {!reviewable && (
+        <p className="mt-3 flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          {order.status === "REJECTED"
+            ? "This order was rejected, so it cannot be reviewed."
+            : "Reviews open once the shop marks this order ready."}
+        </p>
+      )}
+
       {/* Stars */}
       <div className="mt-3 flex gap-1">
         {[1, 2, 3, 4, 5].map((star) => (
           <button
             key={star}
             type="button"
+            disabled={!reviewable}
             aria-label={`${star} star${star > 1 ? "s" : ""}`}
-            className="p-0.5 transition-colors"
+            aria-pressed={reviewable && rating === star}
+            className="p-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
             onMouseEnter={() => setHoveredStar(star)}
             onMouseLeave={() => setHoveredStar(0)}
             onClick={() => setRating(star)}
@@ -122,9 +144,9 @@ export function ReviewCard({ order }: { order: Order }) {
       <div className="mt-3 flex justify-end">
         <button
           type="button"
-          disabled={submitting}
+          disabled={submitting || !reviewable}
           onClick={handleSubmit}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitting ? "Submitting…" : "Submit Review"}
         </button>

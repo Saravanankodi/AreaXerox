@@ -1,6 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@/lib/navigation";
 import { useState } from "react";
-import { toast } from "sonner";
 import { ArrowRight, CheckCircle2, Clock3, FileCheck2, MapPin, PackageCheck, Printer, ShieldCheck, Truck, Upload, Zap } from "lucide-react";
 import { CustomerShell } from "@/components/layout/CustomerShell";
 import { Button } from "@/components/ui/button";
@@ -12,10 +11,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useStore } from "@/lib/store";
-import { useAuth, healAccountIdentity } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { useAppPlatform } from "@/lib/platform";
 import { DocumentUploadCard } from "@/components/home/DocumentUploadCard";
-import { signInWithGoogle } from "@/lib/auth-google";
+import { useGoogleCustomerSignIn } from "@/lib/useGoogleCustomerSignIn";
 
 export const Route = createFileRoute("/")({ component: Index });
 
@@ -28,10 +27,11 @@ const journey = [
 
 function Index() {
   const { setPendingUploadFiles } = useStore();
-  const { session, signIn, getAllAccounts, createAccount, updateAccount } = useAuth();
+  const { session } = useAuth();
   const navigate = useNavigate();
   const platform = useAppPlatform();
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const { loading: googleLoading, signInAsCustomer } = useGoogleCustomerSignIn();
 
   return <CustomerShell hideFooter={platform !== "web"}>
     <section className="home-hero relative overflow-hidden">
@@ -118,50 +118,11 @@ function Index() {
           variant="outline"
           className="w-full"
           size="lg"
+          disabled={googleLoading}
           onClick={async () => {
-            const result = await signInWithGoogle("customer");
-            if (!result.ok || !result.user) {
-              toast.error(result.error ?? "Google sign-in failed.");
-              return;
-            }
+            const signedIn = await signInAsCustomer();
+            if (!signedIn) return;
             setAuthDialogOpen(false);
-            const { user } = result;
-            const accounts = await getAllAccounts();
-            let account = accounts.find(
-              (a) => a.email.toLowerCase() === user.email.toLowerCase() && a.role === "customer",
-            );
-            if (!account) {
-              const created = await createAccount(user.email, `google-${user.sub}`, "customer", user.name);
-              if (typeof created === "string") {
-                toast.error(created);
-                return;
-              }
-              account = created;
-            }
-            await healAccountIdentity(account.id, user);
-            const sessionName = account.name?.trim() || user.name;
-            signIn({
-              accountId: account.id,
-              role: "customer",
-              email: account.email,
-              name: sessionName,
-              phone: account.phone,
-              registrationStatus: account.registrationStatus,
-              accountStatus: account.accountStatus,
-            });
-            if (account.registrationStatus === "incomplete") {
-              updateAccount(account.id, { registrationStatus: "complete" });
-              signIn({
-                accountId: account.id,
-                role: "customer",
-                email: account.email,
-                name: sessionName,
-                phone: account.phone,
-                registrationStatus: "complete",
-                accountStatus: account.accountStatus,
-              });
-            }
-            toast.success("Signed in with Google");
             navigate({ to: "/order" });
           }}
         >

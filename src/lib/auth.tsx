@@ -22,6 +22,8 @@ import {
   getDoc,
   getDocs,
   collection,
+  query,
+  where,
   setDoc,
   updateDoc,
   serverTimestamp,
@@ -79,12 +81,27 @@ interface AuthValue {
 
   getAllAccounts: () => Promise<UserAccount[]>;
 
+  getAccountByEmail: (
+    email: string,
+    role?: AccountRole,
+  ) => Promise<UserAccount | undefined>;
+
   createAccount: (
     email: string,
     password: string,
     role: AccountRole,
     name: string,
     phone?: string,
+  ) => Promise<UserAccount | string>;
+
+  createAccountForAuthUser: (
+    uid: string,
+    input: {
+      email: string;
+      name: string;
+      role: AccountRole;
+      phone?: string;
+    },
   ) => Promise<UserAccount | string>;
 
   updateAccount: (
@@ -432,6 +449,182 @@ export function AuthProvider({
     }
   }, []);
 
+  const getAccountByEmail = useCallback(
+    async (
+      email: string,
+      role?: AccountRole,
+    ): Promise<UserAccount | undefined> => {
+      const normalizedEmail =
+        email.trim().toLowerCase();
+
+      if (!normalizedEmail) {
+        return undefined;
+      }
+
+      try {
+        const snap = await getDocs(
+          query(
+            collection(db, "users"),
+            where("email", "==", normalizedEmail),
+          ),
+        );
+
+        const matches = snap.docs.map((docSnap) =>
+          userFromFirestore(
+            docSnap.id,
+            docSnap.data(),
+          ),
+        );
+
+        return role
+          ? matches.find((account) => account.role === role)
+          : matches[0];
+      } catch (error) {
+        console.warn(
+          "getAccountByEmail failed:",
+          error,
+        );
+        return undefined;
+      }
+    },
+    [],
+  );
+
+
+  /* =======================================================
+   * CREATE ACCOUNT DOCUMENT
+   *
+   * Firestore users/{uid} plus the React session. Used by both the
+   * email/password flow and Google, where the Firebase identity
+   * already exists and only the account document is missing.
+   * ===================================================== */
+
+  const createAccountForAuthUser = useCallback(
+    async (
+      uid: string,
+      input: {
+        email: string;
+        name: string;
+        role: AccountRole;
+        phone?: string;
+      },
+    ): Promise<UserAccount | string> => {
+      try {
+        const normalizedEmail =
+          input.email.trim().toLowerCase();
+
+        const normalizedName =
+          input.name.trim();
+
+        const normalizedPhone =
+          (input.phone ?? "").trim();
+
+
+        /* -----------------------------------------------
+         * 1. INITIAL ACCOUNT STATE
+         * --------------------------------------------- */
+
+        const accountStatus: AccountStatus =
+          input.role === "shopkeeper"
+            ? "pending"
+            : "active";
+
+
+        const registrationStatus:
+          RegistrationStatus = "incomplete";
+
+
+        /* -----------------------------------------------
+         * 2. USER ACCOUNT OBJECT
+         * --------------------------------------------- */
+
+        const now =
+          new Date().toISOString();
+
+        const account: UserAccount = {
+          id: uid,
+
+          email: normalizedEmail,
+
+          role: input.role,
+
+          name: normalizedName,
+
+          phone: normalizedPhone,
+
+          registrationStatus,
+
+          accountStatus,
+
+          createdAt: now,
+
+          updatedAt: now,
+        };
+
+
+        /* -----------------------------------------------
+         * 3. SAVE TO FIRESTORE
+         *
+         * users/{uid}
+         * --------------------------------------------- */
+
+        await setDoc(doc(db, "users", uid), {
+          id: uid,
+
+          email: normalizedEmail,
+
+          role: input.role,
+
+          name: normalizedName,
+
+          phone: normalizedPhone,
+
+          registrationStatus,
+
+          accountStatus,
+
+          createdAt: serverTimestamp(),
+
+          updatedAt: serverTimestamp(),
+        });
+
+
+        /* -----------------------------------------------
+         * 4. CREATE REACT SESSION
+         * --------------------------------------------- */
+
+        const next: AccountSession = {
+          accountId: uid,
+
+          role: input.role,
+
+          name: normalizedName,
+
+          email: normalizedEmail,
+
+          phone: normalizedPhone,
+
+          registrationStatus,
+
+          accountStatus,
+        };
+
+        setSession(next);
+        writeCachedSession(next);
+
+        return account;
+      } catch (error: unknown) {
+        console.error(
+          "Create account document error:",
+          error,
+        );
+
+        return "Unable to create your account. Please try again.";
+      }
+    },
+    [],
+  );
+
 
   /* =======================================================
    * CREATE ACCOUNT
@@ -449,143 +642,22 @@ export function AuthProvider({
       phone = "",
     ): Promise<UserAccount | string> => {
       try {
-        const normalizedEmail =
-          email.trim().toLowerCase();
-
-        const normalizedName =
-          name.trim();
-
-        const normalizedPhone =
-          phone.trim();
-
-
-        /* -----------------------------------------------
-         * 1. CREATE FIREBASE AUTH USER
-         * --------------------------------------------- */
-
         const credential =
           await createUserWithEmailAndPassword(
             auth,
-            normalizedEmail,
+            email.trim().toLowerCase(),
             password,
           );
 
-
-        const uid =
-          credential.user.uid;
-
-
-        /* -----------------------------------------------
-         * 2. INITIAL ACCOUNT STATE
-         * --------------------------------------------- */
-
-        const accountStatus: AccountStatus =
-          role === "shopkeeper"
-            ? "pending"
-            : "active";
-
-
-        const registrationStatus:
-          RegistrationStatus = "incomplete";
-
-
-        /* -----------------------------------------------
-         * 3. USER ACCOUNT OBJECT
-         * --------------------------------------------- */
-
-        const account: UserAccount = {
-          id: uid,
-
-          email: normalizedEmail,
-
-          role,
-
-          name: normalizedName,
-
-          phone: normalizedPhone,
-
-          registrationStatus,
-
-          accountStatus,
-
-          createdAt:
-            new Date().toISOString(),
-
-          updatedAt:
-            new Date().toISOString(),
-        };
-
-
-        /* -----------------------------------------------
-         * 4. SAVE TO FIRESTORE
-         *
-         * users/{uid}
-         * --------------------------------------------- */
-
-        await setDoc(
-          doc(db, "users", uid),
+        return await createAccountForAuthUser(
+          credential.user.uid,
           {
-            id: uid,
-
-            email: normalizedEmail,
-
+            email,
+            name,
+            phone,
             role,
-
-            name: normalizedName,
-
-            phone: normalizedPhone,
-
-            registrationStatus,
-
-            accountStatus,
-
-            createdAt:
-              serverTimestamp(),
-
-            updatedAt:
-              serverTimestamp(),
           },
         );
-
-
-        /* -----------------------------------------------
-         * 5. CREATE REACT SESSION
-         * --------------------------------------------- */
-
-        setSession({
-          accountId: uid,
-
-          role,
-
-          name: normalizedName,
-
-          email: normalizedEmail,
-
-          phone: normalizedPhone,
-
-          registrationStatus,
-
-          accountStatus,
-        });
-
-        writeCachedSession({
-          accountId: uid,
-
-          role,
-
-          name: normalizedName,
-
-          email: normalizedEmail,
-
-          phone: normalizedPhone,
-
-          registrationStatus,
-
-          accountStatus,
-        });
-
-
-        return account;
       } catch (error: unknown) {
         console.error(
           "Create account error:",
@@ -628,7 +700,7 @@ export function AuthProvider({
         return "Unable to create account. Please try again.";
       }
     },
-    [],
+    [createAccountForAuthUser],
   );
 
 
@@ -750,7 +822,11 @@ export function AuthProvider({
 
         getAllAccounts,
 
+        getAccountByEmail,
+
         createAccount,
+
+        createAccountForAuthUser,
 
         updateAccount,
       }),
@@ -767,7 +843,11 @@ export function AuthProvider({
 
         getAllAccounts,
 
+        getAccountByEmail,
+
         createAccount,
+
+        createAccountForAuthUser,
 
         updateAccount,
       ],
