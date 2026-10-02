@@ -25,7 +25,7 @@ const FIRST_ONLINE_ORDER_ID = 10_000;
  * its own.
  */
 async function nextOrderId(db: AdminFirestore): Promise<string> {
-    const ref = db.doc("platform/counters/orders");
+    const ref = db.doc("platform/counters");
     const next = await db.runTransaction(async (tx) => {
         const snapshot = await tx.get(ref);
         const current = Number(snapshot.data()?.value);
