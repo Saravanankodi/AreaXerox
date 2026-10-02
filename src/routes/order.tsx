@@ -33,7 +33,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { DocumentUploadCard } from "@/components/home/DocumentUploadCard";
 import { cn } from "@/lib/utils";
 import { newOrderId, useStore } from "@/lib/store";
-import { useAuth } from "@/lib/auth";
+import { auth } from "@/lib/firebase";
+import { openRazorpayCheckout } from "@/lib/razorpay/checkout";
+import { useAuth, useRequireCustomer } from "@/lib/auth";
 import { uploadFileToCloudinary } from "@/lib/cloudinary";
 import { calculateDocumentPrices, calculateOrderPrice, inr, paymentSplit } from "@/lib/pricing";
 import { detectPageCount } from "@/lib/document-pages";
@@ -41,11 +43,17 @@ import { paymentMethodLabel } from "@/lib/labels";
 import { shopDisplayRating } from "@/lib/shop-rating";
 import { formatShopAddress } from "@/lib/address";
 import { formatTime12h } from "@/lib/time";
-import { isShopVisibleToCustomers } from "@/lib/shop-status";
-import { createNotification } from "@/lib/notifications";
+import {
+  buildPrintOptionsCatalog,
+  resolvePrintConfig,
+  shopsMatchingConfigs,
+  type PaperOption,
+  type PrintOptionsCatalog,
+} from "@/lib/print-options";
 import { ACCEPTED_UPLOAD_TYPES, isSupportedUpload } from "@/lib/upload-config";
 import { useGoogleCustomerSignIn } from "@/lib/useGoogleCustomerSignIn";
 import { getUserProfile } from "@/services/user.service";
+import { notifyOrderPlaced } from "@/services/notifications.service";
 import type {
   Address,
   DocumentFile,
@@ -128,7 +136,7 @@ function SectionCard({
   children,
 }: {
   title: string;
-  hint?: string;
+  hint?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -150,10 +158,16 @@ function printedPaperCount(pages: number, config: PrintConfig) {
   return sheetsPerCopy * copies;
 }
 
+/** Lowest per-page rate for a catalogue paper, for the given print type. */
+function paperRate(paper: PaperOption, printType: PrintConfig["printType"]) {
+  if (printType === "color") return paper.colorEnabled ? paper.colorPrice : -1;
+  return paper.bwEnabled ? paper.bwPrice : -1;
+}
+
 function FilePrintOptions({
   document,
   index,
-  shop,
+  catalog,
   fallback,
   onSelect,
   onChange,
@@ -163,7 +177,7 @@ function FilePrintOptions({
 }: {
   document: DocumentFile;
   index: number;
-  shop: Shop;
+  catalog: PrintOptionsCatalog;
   fallback: PrintConfig;
   onSelect: () => void;
   onChange: (updater: (config: PrintConfig) => PrintConfig) => void;
@@ -173,7 +187,6 @@ function FilePrintOptions({
 }) {
   const config = document.printConfig ?? fallback;
   const papers = printedPaperCount(document.pages, config);
-  const enabledPapers = shop.paperTypes.filter((paper) => paper.enabled);
   return (
     <article onClick={onSelect} className="card-surface min-w-0 cursor-pointer overflow-hidden">
       <div className="flex items-start justify-between gap-3 border-b border-border bg-secondary/50 px-4 py-3">
@@ -232,9 +245,12 @@ function FilePrintOptions({
               value={config.paperTypeId}
               onChange={(value) => onChange((current) => ({ ...current, paperTypeId: value }))}
             >
-              {enabledPapers.map((paper) => (
+              {catalog.paperTypes.map((paper) => (
                 <option key={paper.id} value={paper.id}>
                   {paper.name}
+                  {paperRate(paper, config.printType) > 0
+                    ? ` · from ${inr(paperRate(paper, config.printType))}`
+                    : ""}
                 </option>
               ))}
             </SelectControl>
@@ -274,10 +290,8 @@ function FilePrintOptions({
                 }))
               }
             >
-              <option value="bw">Black & White</option>
-              {shop.paperTypes.some((p) => p.enabled && p.colorEnabled) && (
-                <option value="color">Colour</option>
-              )}
+              <option value="bw">Black &amp; White</option>
+              {catalog.colorAvailable && <option value="color">Colour</option>}
             </SelectControl>
             <SelectControl
               label="Format"
@@ -287,7 +301,7 @@ function FilePrintOptions({
               }
             >
               <option value="single">Front only</option>
-              {shop.printSides.double && <option value="double">Front & back</option>}
+              {catalog.doubleSidedAvailable && <option value="double">Front &amp; back</option>}
             </SelectControl>
             <SelectControl
               label="Binding"
@@ -297,13 +311,12 @@ function FilePrintOptions({
               }
             >
               <option value="none">No binding</option>
-              {shop.binding
-                .filter((option) => option.enabled)
-                .map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.name} · {inr(option.price)}
-                  </option>
-                ))}
+              {catalog.binding.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                  {option.price > 0 ? ` · from ${inr(option.price)}` : ""}
+                </option>
+              ))}
             </SelectControl>
             <SelectControl
               label="Page layout"
@@ -330,13 +343,13 @@ function FilePrintOptions({
               }
             >
               <option value="none">No extra service</option>
-              {shop.additional
-                .filter((option) => option.enabled)
-                .map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.name} · {inr(option.price)} {option.perPage ? "/ page" : "/ set"}
-                  </option>
-                ))}
+              {catalog.additional.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                  {option.price > 0 ? ` · from ${inr(option.price)}` : ""}{" "}
+                  {option.perPage ? "/ page" : "/ set"}
+                </option>
+              ))}
             </SelectControl>
             <SelectControl
               label="Orientation"
@@ -349,7 +362,7 @@ function FilePrintOptions({
               }
             >
               <option value="portrait">Portrait</option>
-              <option value="landscape">Landscape</option>
+              {catalog.landscapeAvailable && <option value="landscape">Landscape</option>}
             </SelectControl>
             {/* RANGE + SPECIAL INSTRUCTIONS — full width row */}
             <div className="col-span-2 grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
@@ -629,6 +642,7 @@ function paymentMethodAvailable(shop: Shop, fulfillment: Fulfillment, method: Pa
 
 function OrderPage() {
   const navigate = useNavigate();
+  const allowed = useRequireCustomer();
   const {
     shops,
     activeShop,
@@ -648,15 +662,14 @@ function OrderPage() {
     cacheFile,
     removeCachedFile,
     reviews,
-    addNotification,
   } = useStore();
   const { session } = useAuth();
   const { loading: googleLoading, signInAsCustomer } = useGoogleCustomerSignIn();
 
   const [step, setStep] = useState(0);
-  const [docs, setDocs] = useState<DocumentFile[]>([]);
+  const [rawDocs, setDocs] = useState<DocumentFile[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<Record<string, File>>({});
-  const [config, setConfig] = useState<PrintConfig>(defaultConfig);
+  const [rawConfig, setConfig] = useState<PrintConfig>(defaultConfig);
   const [shopId, setShopId] = useState<string>(shops[0]?.id ?? activeShop.id);
   const [fulfillment, setFulfillment] = useState<Fulfillment>("pickup");
   const [addressId, setAddressId] = useState<string | null>(addresses[0]?.id ?? null);
@@ -683,6 +696,43 @@ function OrderPage() {
   const [uploadingNames, setUploadingNames] = useState<string[]>([]);
   const addMoreFilesRef = useRef<HTMLInputElement>(null);
   const draftRestoredRef = useRef(false);
+
+  // Every print option offered by any customer-visible shop, so the customer can
+  // configure the documents before choosing a shop.
+  const catalog = useMemo(() => buildPrintOptionsCatalog(shops), [shops]);
+
+  // Configurations are projected through the shared catalogue, so a selection can
+  // never point at an option that no shop offers.
+  const config = useMemo(() => resolvePrintConfig(rawConfig, catalog), [rawConfig, catalog]);
+  const docs = useMemo(
+    () =>
+      rawDocs.map((document) => {
+        const current = document.printConfig;
+        if (!current) return document;
+        const resolved = resolvePrintConfig(current, catalog);
+        return resolved === current ? document : { ...document, printConfig: resolved };
+      }),
+    [rawDocs, catalog],
+  );
+
+  // The specification the shops are matched against — one per uploaded document.
+  const orderConfigs = useMemo(
+    () => (docs.length ? docs.map((document) => document.printConfig ?? config) : [config]),
+    [docs, config],
+  );
+
+  // Only shops that can actually print the chosen specifications are shown.
+  const matchingShops = useMemo(
+    () => shopsMatchingConfigs(shops, orderConfigs),
+    [shops, orderConfigs],
+  );
+
+  // The chosen shop always comes from the matching list, so it can never drift
+  // out of sync with the current specifications.
+  const shop = useMemo(() => {
+    const candidates = matchingShops.length ? matchingShops : shops;
+    return candidates.find((candidate) => candidate.id === shopId) ?? candidates[0] ?? activeShop;
+  }, [matchingShops, shops, shopId, activeShop]);
 
   // Restore order draft after store hydration.
   // useState initializers only run on the first render, but the store hydrates
@@ -712,10 +762,6 @@ function OrderPage() {
     lowestPrice: false,
     minRating: 0,
   });
-  const shop = useMemo<Shop>(
-    () => shops.find((s) => s.id === shopId) ?? shops[0] ?? activeShop,
-    [shops, shopId, activeShop],
-  );
   const price = useMemo(
     () => calculateOrderPrice(shop, docs, config, fulfillment),
     [shop, docs, config, fulfillment],
@@ -738,10 +784,7 @@ function OrderPage() {
 
   // Filter and sort shops based on search, filters, and current order pricing.
   const filteredSortedShops = useMemo(() => {
-    let result = [...shops];
-
-    // Only show shops visible to customers (approved, profile complete, services configured).
-    result = result.filter((s) => isShopVisibleToCustomers(s));
+    let result = [...matchingShops];
 
     // Search filter.
     if (shopSearch.trim()) {
@@ -774,7 +817,7 @@ function OrderPage() {
     }
 
     return result;
-  }, [shops, shopSearch, shopFilters, docs, config, fulfillment, reviews]);
+  }, [matchingShops, shopSearch, shopFilters, docs, config, fulfillment, reviews]);
 
   // Group filtered shops into pages of 3 for set-based scrolling.
   const shopPages = useMemo(() => {
@@ -980,49 +1023,17 @@ function OrderPage() {
   }, [docs, uploadedFileNames, setUploadedFileNames]);
 
   const selectShop = (nextShopId: string) => {
-    const nextShop = shops.find((candidate) => candidate.id === nextShopId);
-    if (!nextShop) return;
+    // The list only ever renders shops that support the current specifications,
+    // so confirming one never has to change what the customer asked for.
+    if (!matchingShops.some((candidate) => candidate.id === nextShopId)) return;
     setShopId(nextShopId);
     setShopConfirmed(true);
     if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches)
       setMobileShopSummaryOpen(true);
-    setDocs((all) =>
-      all.map((document) => {
-        const current = document.printConfig ?? defaultConfig;
-        const paperAvailable = nextShop.paperTypes.some(
-          (paper) => paper.id === current.paperTypeId && paper.enabled,
-        );
-        return {
-          ...document,
-          printConfig: {
-            ...current,
-            paperTypeId: paperAvailable
-              ? current.paperTypeId
-              : (nextShop.paperTypes.find((paper) => paper.enabled)?.id ?? current.paperTypeId),
-            printType:
-              current.printType === "color" &&
-              !nextShop.paperTypes.some((p) => p.enabled && p.colorEnabled)
-                ? "bw"
-                : current.printType,
-            side:
-              current.side === "double" && !nextShop.printSides.double ? "single" : current.side,
-            orientation:
-              current.orientation === "landscape" && !nextShop.orientation.landscape
-                ? "portrait"
-                : current.orientation,
-            bindingId: nextShop.binding.some(
-              (option) => option.id === current.bindingId && option.enabled,
-            )
-              ? current.bindingId
-              : null,
-            additionalIds: current.additionalIds.filter((id) =>
-              nextShop.additional.some((option) => option.id === id && option.enabled),
-            ),
-          },
-        };
-      }),
-    );
   };
+
+  // The confirmed shop is only valid while it still matches the specifications.
+  const shopSelected = shopConfirmed && matchingShops.some((candidate) => candidate.id === shopId);
 
   const paper = shop.paperTypes.find((p) => p.id === config.paperTypeId);
 
@@ -1032,7 +1043,7 @@ function OrderPage() {
     // Step 0 waits for the real Cloudinary upload, not just the local file
     // selection — docs entries are created before their upload starts.
     if (step === 0) return docs.length > 0 && !uploadsPending;
-    if (step === 1) return shopConfirmed;
+    if (step === 1) return shopSelected;
     if (step === 2) return fulfillment === "pickup" || !!address;
     if (step === 3)
       return (
@@ -1087,10 +1098,92 @@ function OrderPage() {
         })
       );
 
+      if (method === "full" || method === "advance") {
+        toast.loading("Preparing payment...", { id: "place-order" });
+        const res = await fetch("/api/orders/prepare-payment", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${await auth.currentUser?.getIdToken()}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            shopId: shop.id,
+            documents: finalDocs,
+            config,
+            fulfillment,
+            address,
+            paymentMethod: method,
+            notes
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || "Failed to prepare payment.");
+        }
+
+        const data = await res.json();
+
+        await openRazorpayCheckout({
+          key: data.key_id,
+          order_id: data.razorpayOrderId,
+          amount: data.amountPaise,
+          currency: "INR",
+          name: data.name,
+          description: data.description,
+          prefill: data.prefill,
+          handler: async (response) => {
+            try {
+              toast.loading("Verifying payment...", { id: "place-order" });
+              const verifyRes = await fetch("/api/orders/confirm-payment", {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${await auth.currentUser?.getIdToken()}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                  orderDraft: data.orderDraft,
+                })
+              });
+
+              if (!verifyRes.ok) {
+                const errData = await verifyRes.json().catch(() => ({}));
+                throw new Error(errData.error || "Payment verification failed.");
+              }
+              const verifyData = await verifyRes.json();
+
+              void notifyOrderPlaced(verifyData.orderId).catch(console.warn);
+              clearPendingDocs();
+              setUploadedFileNames([]);
+              toast.success("Order placed successfully!", { id: "place-order" });
+              navigate({ to: "/order-confirmation/$orderId", params: { orderId: verifyData.orderId } });
+            } catch (err: unknown) {
+              setSubmittingOrder(false);
+              toast.error(
+                err instanceof Error ? err.message : "Payment verification failed",
+                { id: "place-order" },
+              );
+            }
+          },
+          modal: {
+            ondismiss: () => {
+              setSubmittingOrder(false);
+              toast.error("Payment was cancelled", { id: "place-order" });
+            }
+          }
+        });
+
+        return;
+      }
+
       const now = new Date().toISOString();
       const primaryConfig = finalDocs[0]?.printConfig ?? config;
       const primaryPaper = shop.paperTypes.find((item) => item.id === primaryConfig.paperTypeId);
 
+      // eslint-disable-next-line react-hooks/purity
       const generatedId = `OMX-${Math.floor(1000 + Math.random() * 9000)}`;
 
       // Resolve the customer's identity from the most authoritative source so
@@ -1109,9 +1202,12 @@ function OrderPage() {
         }
       }
 
+      // eslint-disable-next-line react-hooks/purity
+      const custId = session?.accountId || `cust-${Date.now()}`;
+
       const order: Order = {
         id: generatedId,
-        customerId: session?.accountId || `cust-${Date.now()}`,
+        customerId: custId,
         customerName: customerName || "Customer",
         customerPhone: customerPhone,
         shopId: shop.id,
@@ -1130,6 +1226,7 @@ function OrderPage() {
         },
         fulfillment,
         address: fulfillment === "delivery" ? address : null,
+        notes: notes.trim() || undefined,
         price,
         paymentMethod: method,
         amountPaid: split.paidNow,
@@ -1142,34 +1239,31 @@ function OrderPage() {
       };
 
       const createdOrder = await placeOrder(order);
-      addNotification(
-      createNotification({
-        recipientId: shop.ownerAccountId ?? shop.id,
-        recipientRole: "shopkeeper",
-        type: "order_placed",
-        title: "New Order Received",
-        message: `Order ${order.id} placed by ${profile.name} — ${inr(price.total)}.`,
-        relatedEntityId: order.id,
-        entityType: "order",
-      }),
-    );
-    clearPendingDocs();
+      // Fire-and-forget: the shop is notified server-side, which resolves the
+      // owner from the shop document rather than trusting a client-supplied id.
+      void notifyOrderPlaced(createdOrder.id).catch((err) =>
+        console.warn("Order-placed notification failed:", err),
+      );
+      clearPendingDocs();
       setUploadedFileNames([]);
       toast.success("Order placed successfully!", {
         id: "place-order",
         description: `${createdOrder.id} sent to ${shop.name}`,
       });
       navigate({ to: "/order-confirmation/$orderId", params: { orderId: createdOrder.id } });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Order placement error:", error);
       toast.error("Failed to place order. Please try again.", {
         id: "place-order",
-        description: error.message || "Network or database error.",
+        description:
+          error instanceof Error && error.message ? error.message : "Network or database error.",
       });
     } finally {
       setSubmittingOrder(false);
     }
   };
+
+  if (!allowed) return null;
 
   return (
     <CustomerShell>
@@ -1225,15 +1319,29 @@ function OrderPage() {
                 </div>
                 <SectionCard
                   title="Documents + specifications"
-                  hint="Every file has its own print settings and quote."
+                  hint="Every file has its own print settings and quote. All options are listed below — pick them first and we will show only the shops that support your choice."
                 >
+                  {docs.length > 0 && catalog.paperTypes.length > 0 && (
+                    <p
+                      className={cn(
+                        "mb-4 rounded-md border px-3 py-2 text-xs font-medium",
+                        matchingShops.length
+                          ? "border-success/30 bg-success-light text-success"
+                          : "border-destructive/30 bg-destructive/10 text-destructive",
+                      )}
+                    >
+                      {matchingShops.length
+                        ? `${matchingShops.length} shop${matchingShops.length === 1 ? "" : "s"} support your current specifications.`
+                        : "No shop supports this combination yet — relax a setting to continue."}
+                    </p>
+                  )}
                   <div className=" space-y-4  ">
                     {docs.map((document, index) => (
                       <FilePrintOptions
                         key={document.id}
                         document={document}
                         index={index}
-                        shop={shop}
+                        catalog={catalog}
                         fallback={config}
                         onSelect={() => setActiveDocumentId(document.id)}
                         onChange={(updater) =>
@@ -1344,7 +1452,7 @@ function OrderPage() {
               <div className=" space-y-6 lg:sticky lg:top-24 lg:self-start">
                 <SectionCard
                   title="Select Nearby print shops to Continue"
-                  hint="Prices update instantly based on the shop you pick."
+                  hint={`Only shops that can print your specifications are listed. Prices update instantly based on the shop you pick.`}
                 >
                   {/* Search + Filter */}
                   <div className="mb-4 flex items-center gap-2">
@@ -1463,7 +1571,9 @@ function OrderPage() {
                     >
                       {shopPages.length === 0 && (
                         <p className="py-8 text-center text-sm text-muted-foreground">
-                          No print shops found. Try changing your search or filters.
+                          {matchingShops.length === 0 && catalog.paperTypes.length > 0
+                            ? "No shop can print this combination. Go back and change the paper, colour, binding or extras."
+                            : "No print shops found. Try changing your search or filters."}
                         </p>
                       )}
                       {shopPages.map((page, pageIdx) => (
@@ -1477,7 +1587,7 @@ function OrderPage() {
                           style={{ scrollSnapAlign: "start" }}
                         >
                           {page.map((s, cardIdx) => {
-                            const active = shopConfirmed && s.id === shopId;
+                            const active = shopSelected && s.id === shopId;
                             const availability = shopAvailability(s);
                             const shopTotal = calculateOrderPrice(
                               s,
@@ -1524,6 +1634,9 @@ function OrderPage() {
                                   </p>
 
                                   <p className="shrink-0 text-xs text-muted-foreground">
+                                    {
+                                      `${s.workingDaysFrom ?? 'Monday'} - ${s.workingDaysTo ?? 'Saturday'}  `
+                                    }
                                     {s.openingTime && s.closingTime
                                       ? `${formatTime12h(s.openingTime)}–${formatTime12h(s.closingTime)}`
                                       : s.hours}
@@ -1933,7 +2046,7 @@ function OrderPage() {
           {step === 1 && (
             <aside className="sticky top-24 hidden self-start md:block">
               <div className="card-surface p-5">
-                {shopConfirmed ? (
+                {shopSelected ? (
                   <ShopSummaryPanel
                     shop={shop}
                     availability={selectedAvailability}
@@ -1959,7 +2072,7 @@ function OrderPage() {
           )}
         </div>
         <Dialog
-          open={mobileShopSummaryOpen && shopConfirmed}
+          open={mobileShopSummaryOpen && shopSelected}
           onOpenChange={setMobileShopSummaryOpen}
         >
           <DialogContent className="max-h-[90vh] overflow-y-auto p-4 sm:max-w-md sm:p-6 md:hidden">
@@ -2035,10 +2148,12 @@ function OrderPage() {
               size="lg"
               disabled={googleLoading}
               onClick={async () => {
-                const signedIn = await signInAsCustomer();
-                if (!signedIn) return;
-                setAuthDialogOpen(false);
-                navigate({ to: "/order" });
+                // Google's account chooser opens in a popup, so this page stays
+                // mounted. AuthProvider provisions the profile and sets the
+                // session, which lifts the auth gate above.
+                if (await signInAsCustomer()) {
+                  setAuthDialogOpen(false);
+                }
               }}
             >
               <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">

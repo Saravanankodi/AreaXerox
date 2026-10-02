@@ -94,6 +94,139 @@ export type RazorpayPayoutStatus =
 
 
 /* =========================================================
+ * SHOPKEEPER WALLET
+ *
+ * Firestore:
+ * wallets/{shopId}
+ * wallets/{shopId}/entries/{entryId}
+ * withdrawals/{withdrawalId}
+ *
+ * The wallet is funded only by cash/UPI/card the shopkeeper
+ * physically collects. Online gateway payments keep auto-splitting
+ * straight to the linked bank account and never touch the ledger.
+ * Every document here is server-owned (Admin SDK); the shopkeeper
+ * reads them through /api/wallet.
+ * ======================================================= */
+
+export type WithdrawalStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "paid";
+
+export type WithdrawalMethod = "bank" | "upi";
+
+export type WalletEntryKind = "credit" | "debit";
+
+export type WalletEntrySource =
+  | "order_collection"
+  | "withdrawal"
+  | "adjustment";
+
+export interface WalletSummary {
+  shopId: string;
+
+  ownerAccountId: string;
+
+  /**
+   * Lifetime credits, in rupees.
+   */
+  totalEarned: number;
+
+  /**
+   * Sum of in-flight (pending / approved) withdrawal requests.
+   */
+  pendingRequested: number;
+
+  /**
+   * Spendable right now. Computed server-side as
+   * totalEarned - pendingRequested.
+   */
+  availableBalance: number;
+
+  /**
+   * Lifetime actually paid out.
+   */
+  withdrawn: number;
+
+  /**
+   * Distinct orders that have credited the wallet.
+   */
+  ordersCounted: number;
+
+  createdAt: string;
+
+  updatedAt: string;
+}
+
+export interface WalletEntry {
+  id: string;
+
+  shopId: string;
+
+  kind: WalletEntryKind;
+
+  source: WalletEntrySource;
+
+  /**
+   * Always positive. `kind` carries the direction.
+   */
+  amount: number;
+
+  orderId?: string;
+
+  via?: PaymentCollectedVia;
+
+  note?: string;
+
+  createdAt: string;
+}
+
+export interface WithdrawalDestination {
+  accountNumber?: string;
+  ifsc?: string;
+  beneficiaryName?: string;
+  upiId?: string;
+}
+
+export interface Withdrawal {
+  id: string;
+
+  shopId: string;
+
+  ownerAccountId: string;
+
+  amount: number;
+
+  status: WithdrawalStatus;
+
+  method: WithdrawalMethod;
+
+  /**
+   * Snapshot of the payout destination at request time, so a later
+   * profile edit cannot retroactively change what was asked for.
+   */
+  destination: WithdrawalDestination;
+
+  /**
+   * Optional note supplied by the shopkeeper when requesting.
+   */
+  note?: string;
+
+  requestedAt: string;
+
+  decidedAt?: string;
+
+  decidedBy?: string;
+
+  /**
+   * Admin's note. Distinct from `note`.
+   */
+  decisionNote?: string;
+}
+
+
+/* =========================================================
  * ORDER STATUS
  * ======================================================= */
 
@@ -189,6 +322,16 @@ export interface UserAccount {
    * Only normally present for shopkeepers.
    */
   shopId?: string;
+
+  /**
+   * A Google identity that has been linked to this account.
+   *
+   * `id` is the Firebase uid that owns the account, which is not necessarily the
+   * uid the person signs in with: an account created with a password keeps its
+   * own uid when Google is later linked to it, because re-keying the document
+   * would orphan every order and shop pointing at `id`.
+   */
+  googleUid?: string;
 
   registrationStatus: RegistrationStatus;
 
@@ -906,6 +1049,11 @@ export interface Order {
    */
   address: Address | null;
 
+  /**
+   * Free-form instructions the customer typed for the shop.
+   */
+  notes?: string;
+
   price: PriceBreakdown;
 
   payment?: OrderPayment;
@@ -1298,6 +1446,16 @@ export type NotificationType =
   | "account"
   | "info";
 
+/**
+ * Delivery outcome for the browser push attempt on a notification. See the
+ * `Notification.pushStatus` field for the full rationale.
+ */
+export type NotificationPushStatus =
+  | "pending"
+  | "sent"
+  | "skipped"
+  | "failed";
+
 export type NotificationRecipientRole =
   | "customer"
   | "shopkeeper"
@@ -1323,6 +1481,21 @@ export interface Notification {
   read: boolean;
 
   createdAt: string;
+
+  /* Server-owned push delivery state. Optional so notifications cached before
+     this change (and any future non-push channel) still hydrate cleanly.
+
+     `skipped` is deliberately distinct from `failed`: a recipient with zero
+     registered devices has nothing to deliver to, which is a terminal state
+     that must not be retried. `failed` is a real error worth retrying.
+     `pending` means the document exists but no push has been attempted yet. */
+  pushStatus?: NotificationPushStatus;
+
+  pushAttempts?: number;
+
+  pushLastError?: string | null;
+
+  pushedAt?: string | null;
 }
 
 
@@ -1348,6 +1521,12 @@ export interface PlatformSettings {
    * transfer amounts can never equal the captured amount.
    */
   enforceMinimumCut?: boolean;
+
+  /**
+   * Smallest amount a shopkeeper may request in one withdrawal.
+   * Defaults to 100 when unset.
+   */
+  minWithdrawalAmount?: number;
 
   updatedAt?: string;
 }

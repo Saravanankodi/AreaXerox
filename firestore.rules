@@ -37,12 +37,136 @@ function isOrderRazorpayDataInvariant() {
     && isFieldInvariant("razorpayPayoutStatus");
 }
 
+// Cashfree-owned fields on Orders. Same reasoning as the Razorpay block: every
+// writer is an API route or webhook using the Admin SDK, so no client code path
+// needs write access to them.
+function isOrderCashfreeDataInvariant() {
+  return isFieldInvariant("cashfreeOrderId")
+    && isFieldInvariant("cashfreePaymentId")
+    && isFieldInvariant("cashfreePaymentSessionId")
+    && isFieldInvariant("paymentGateway");
+}
+
+// Financial fields on Orders. Once an order exists, these belong to the server.
+//
+//   amountPaid / balance / paymentStatus
+//     Written only by the Admin SDK: /api/orders/collect (offline cash, UPI,
+//     card) and the Razorpay/Cashfree verify + webhook routes.
+//   balanceCollectedVia
+//     Written only by /api/orders/collect.
+//
+// Before this rule existed, `allow update: if isAuthenticated()` let any
+// signed-in user mark any order as fully paid for any amount, because the
+// client's own /api/orders/collect call went through a client-side
+// `updateDoc`. That helper has been deleted, so nothing legitimate writes these
+// fields from the browser any more.
+//
+// Locked on `update` only — see isOrderFinancialDataConsistent() for create.
+function isOrderFinancialDataInvariant() {
+  return isFieldInvariant("amountPaid")
+    && isFieldInvariant("balance")
+    && isFieldInvariant("paymentStatus")
+    && isFieldInvariant("balanceCollectedVia");
+}
+
+// On `create` the client still legitimately supplies the opening split, because
+// there is no server-side order-placement endpoint: src/lib/firestore/orders.ts
+// writes the whole document from the browser, and paymentSplit() in
+// src/lib/pricing.ts derives amountPaid/balance from the chosen payment method.
+//
+// So these fields cannot simply be declared server-owned on create. What can be
+// enforced is internal consistency, which is what the server actually relies on
+// when it sizes a payment:
+//
+//   amountPaid + balance == price.total
+//   paymentStatus agrees with those two numbers
+//
+// This does NOT stop a client from declaring an order "full" (paid) up front —
+// that is a real product decision about whether an unpaid order may be created
+// as already-paid. Closing that requires moving order placement behind an API
+// route, which is a separate change.
+//
+// NOTE: written as one boolean expression on purpose. Rules functions only
+// permit a final `return` of an expression — `if` blocks and reassigning a `let`
+// are rejected by the compiler with a bare "invalid argument" 400. Short-circuit
+// `&&` is what lets the `is map` / `in` guards run before the field reads below,
+// so a missing or wrongly-typed field denies rather than erroring.
+function isOrderFinancialDataConsistent() {
+  let d = request.resource.data;
+  return ("amountPaid" in d)
+    && ("balance" in d)
+    && ("paymentStatus" in d)
+    && ("price" in d)
+    && (d.price is map)
+    && ("total" in d.price)
+    && (d.amountPaid is number)
+    && (d.balance is number)
+    && (d.price.total is number)
+    && d.amountPaid >= 0
+    && d.balance >= 0
+    && d.price.total >= 0
+    // money() rounds to 2dp on the client, so allow a cent of float drift.
+    && d.amountPaid + d.balance >= d.price.total - 0.01
+    && d.amountPaid + d.balance <= d.price.total + 0.01
+    && (d.paymentStatus in ["unpaid", "partial", "paid", "failed", "refunded"])
+    // Mirrors src/routes/order.tsx: paidNow === 0 -> unpaid, else balance === 0
+    // -> paid, else partial.
+    && d.paymentStatus
+      == (d.amountPaid == 0 ? "unpaid" : (d.balance == 0 ? "paid" : "partial"));
+}
+
 // Users Collection
 match /users/{userId} {
   allow read, write: if true;
-  
-  match /{document=**} {
-    allow read, write: if true;
+
+  // Subcollections are allowlisted explicitly rather than covered by a
+  // `/{document=**}` wildcard. Firestore ORs every matching rule, so a
+  // blanket allow would silently override the narrower `deny` needed for
+  // notifications and make write protection unenforceable. Only add a path
+  // here once its client usage has been audited.
+  //
+  // NOTE: there is no Emulator Suite or rules test in this repo, and
+  // `firebase deploy --only firestore:rules` is all-or-nothing. Verify every
+  // new match against a local emulator before deploying.
+
+  // Notification inbox. Read-only from the client: creation, delivery state
+  // and `read` toggles are all server-owned (the Admin SDK bypasses these
+  // rules, and /api/notifications is the only client entry point). A client
+  // write here would let any user forge or tamper with anyone's alerts.
+  match /notifications/{notificationId} {
+    allow read: if isAuthenticated() && request.auth.uid == userId;
+    allow write: if false;
+  }
+
+  // FCM registration tokens. Registration and deletion both go through
+  // /api/push/*, which verifies the caller and writes via the Admin SDK, so the
+  // client never needs direct access. Read is allowed for a user's own tokens
+  // (useful for a future "your devices" screen) and delete is allowed so a
+  // client can drop a token without a round trip if it ever needs to; create and
+  // update stay closed, because a client write here would let any user plant a
+  // token on another account and start receiving their notifications.
+  match /fcmTokens/{tokenId} {
+    allow read: if isAuthenticated() && request.auth.uid == userId;
+    allow create, update: if false;
+    allow delete: if isAuthenticated() && request.auth.uid == userId;
+  }
+
+  match /addresses/{addressId} {
+    allow read, write: if isAuthenticated() && request.auth.uid == userId;
+  }
+
+  match /tickets/{ticketId} {
+    allow read, write: if isAuthenticated() && request.auth.uid == userId;
+  }
+
+  // Two levels deep. `src/lib/firestore/users.ts` builds this path with
+  // setDoc(doc(db, "users", uid, "profile/shopkeeper")) — the last argument
+  // is a single document ID containing a slash, not a collection tree. Rules
+  // split that ID into path segments, so this 4-segment match is what the
+  // document actually resolves to. A `/profile/{a}/{b}` match would silently
+  // fail, and the write error is swallowed by the caller.
+  match /profile/shopkeeper {
+    allow read, write: if isAuthenticated() && request.auth.uid == userId;
   }
 }
 
@@ -59,8 +183,30 @@ match /shops/{shopId} {
 // Orders Collection
 match /orders/{orderId} {
   allow read: if true;
-  allow create: if isAuthenticated();
-  allow update: if isAuthenticated() && isOrderRazorpayDataInvariant();
+
+  // Client-created, but the opening financial split must be internally
+  // consistent (see isOrderFinancialDataConsistent) and must not pre-declare
+  // any gateway or settlement outcome.
+  allow create: if isAuthenticated()
+    && isOrderFinancialDataConsistent()
+    && (request.resource.data.paymentMethod == "cash_pickup" || request.resource.data.paymentMethod == "cash_delivery")
+    && !("razorpayOrderId" in request.resource.data)
+    && !("razorpayPaymentId" in request.resource.data)
+    && !("razorpaySignature" in request.resource.data)
+    && !("settlementStatus" in request.resource.data)
+    && !("cashfreeOrderId" in request.resource.data)
+    && !("cashfreePaymentId" in request.resource.data)
+    && !("cashfreePaymentSessionId" in request.resource.data)
+    && !("paymentGateway" in request.resource.data);
+
+  // Status transitions (shopkeeper advancing, customer cancelling) and the
+  // customerName/customerPhone backfill are the only client writes left, and
+  // none of them touch a financial or gateway field.
+  allow update: if isAuthenticated()
+    && isOrderRazorpayDataInvariant()
+    && isOrderCashfreeDataInvariant()
+    && isOrderFinancialDataInvariant();
+
   allow delete: if false;
 }
 
@@ -83,8 +229,41 @@ match /reviews/{reviewId} {
     }
 
     // Admins
+    //
+    // This collection is the authorization source for every admin-gated
+    // endpoint (see `assertAdmin` in src/lib/wallet/server.ts), so leaving it
+    // client-writable let any authenticated user mint themselves an admin
+    // document and approve their own withdrawals.
+    //
+    // Write is denied outright. Provision an admin with
+    // `tmp/bootstrap-admin.mjs`, which uses the Admin SDK and therefore bypasses
+    // these rules. Do NOT re-add a client write path.
+    //
+    // Read is deliberately NOT denied: `getAccountByUid` (src/services/auth.service.ts)
+    // reads admins/{uid} on sign-in to resolve the admin role. A denied read
+    // throws rather than returning "not found", which would abort that lookup
+    // before it reaches its users/ fallback and lock every admin out of the app.
+    // Self-read only — an admin sees their own record (id, email, name, role)
+    // and nobody else's.
     match /admins/{adminId} {
-      allow read, write: if true;
+      allow read: if request.auth != null && request.auth.uid == adminId;
+      allow write: if false;
+    }
+
+    // Wallets: balances, ledger entries, credited-order markers, withdrawals.
+    //
+    // Entirely server-owned via /api/wallet, /api/wallet/withdrawals and
+    // /api/orders/collect. Clients must not read or write any of it: a
+    // client-readable balance can be forged, and a client-writable ledger means
+    // `totalEarned` is whatever the browser said it was.
+    match /wallets/{shopId} {
+      allow read, write: if false;
+
+      // No subcollection is exempt — entries, withdrawals and creditedOrders
+      // are the same ledger and carry the same trust requirement.
+      match /{document=**} {
+        allow read, write: if false;
+      }
     }
 
     // Support Tickets

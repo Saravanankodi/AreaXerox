@@ -1,4 +1,12 @@
-import type { Fulfillment, OrderStatus, PaymentMethod, PaymentStatus } from "@/types";
+import type {
+  Fulfillment,
+  OrderStatus,
+  PaymentCollectedVia,
+  PaymentMethod,
+  PaymentStatus,
+  WalletEntrySource,
+  WithdrawalStatus,
+} from "@/types";
 
 export const orderStatusLabel: Record<OrderStatus, string> = {
   NEW: "New",
@@ -106,4 +114,23 @@ export function isOrderReviewable(status: OrderStatus): boolean {
 export const fulfillmentLabel: Record<Fulfillment, string> = {
   pickup: "Pickup",
   delivery: "Delivery",
+};
+
+export const withdrawalStatusLabel: Record<WithdrawalStatus, string> = {
+  pending: "Pending",
+  approved: "Approved",
+  rejected: "Rejected",
+  paid: "Paid out",
+};
+
+export const walletEntrySourceLabel: Record<WalletEntrySource, string> = {
+  order_collection: "Payment collected",
+  withdrawal: "Withdrawal",
+  adjustment: "Adjustment",
+};
+
+export const walletCollectedViaLabel: Record<PaymentCollectedVia, string> = {
+  cash: "Cash",
+  upi: "UPI",
+  card: "Card",
 };

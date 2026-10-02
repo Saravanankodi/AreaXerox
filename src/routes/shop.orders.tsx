@@ -8,8 +8,8 @@ import { useStore } from "@/lib/store";
 import { useMyShop } from "@/lib/useMyShop";
 import { inr } from "@/lib/pricing";
 import { fulfillmentLabel } from "@/lib/labels";
-import { createNotification } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
+import { fireAndForget, notifyOrderStatusChanged } from "@/services/notifications.service";
 import type { Order } from "@/types";
 
 export const Route = createFileRoute("/shop/orders")({
@@ -42,7 +42,7 @@ const IN_PROGRESS_STATUSES = [
 const COMPLETED_STATUSES = ["COMPLETED", "DELIVERED"] as const;
 
 function ShopOrders() {
-  const { orders, advanceOrder, addNotification, activeShop } = useStore();
+  const { orders, advanceOrder } = useStore();
   const shop = useMyShop();
   const [tab, setTab] = useState<Tab>("New");
   const navigate = useNavigate();
@@ -82,17 +82,7 @@ function ShopOrders() {
     advanceOrder(o.id, "REJECTED")
       .then(() => {
         toast.error(`${o.id} rejected`);
-        addNotification(
-          createNotification({
-            recipientId: o.customerId ?? o.customerPhone,
-            recipientRole: "customer",
-            type: "order_rejected",
-            title: "Order Rejected",
-            message: `Your order ${o.id} has been rejected by ${activeShop.name}.`,
-            relatedEntityId: o.id,
-            entityType: "order",
-          }),
-        );
+        fireAndForget(() => notifyOrderStatusChanged(o.id, "REJECTED"), "order_rejected");
       })
       .catch((err) => toast.error(err.message || `Could not reject ${o.id}.`));
   }
@@ -101,17 +91,7 @@ function ShopOrders() {
     advanceOrder(o.id, "ACCEPTED")
       .then(() => {
         toast.success(`${o.id} accepted`);
-        addNotification(
-          createNotification({
-            recipientId: o.customerId ?? o.customerPhone,
-            recipientRole: "customer",
-            type: "order_accepted",
-            title: "Order Accepted",
-            message: `Your order ${o.id} has been accepted by ${activeShop.name}.`,
-            relatedEntityId: o.id,
-            entityType: "order",
-          }),
-        );
+        fireAndForget(() => notifyOrderStatusChanged(o.id, "ACCEPTED"), "order_accepted");
         navigate({ to: "/shop/orders/$orderId", params: { orderId: o.id } });
       })
       .catch((err) => toast.error(err.message || `Could not accept ${o.id}.`));

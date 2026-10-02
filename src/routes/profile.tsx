@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import type { CustomerPayoutMethod } from "@/types";
+import type { Address, CustomerPayoutMethod, CustomerProfile } from "@/types";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
@@ -25,68 +25,94 @@ export const Route = createFileRoute("/profile")({
   component: ProfilePage,
 });
 
+const ADDRESS_LABELS = ["Home", "Office", "College"] as const;
+
+function emptyAddressDraft(profile: CustomerProfile): Omit<Address, "id"> {
+  return {
+    label: "Home",
+    name: profile.name ?? "",
+    phone: profile.phone ?? "",
+    house: "",
+    street: "",
+    area: "",
+    city: "",
+    pincode: "",
+  };
+}
+
+/**
+ * Stored addresses are typed as `Address` but come back from Firestore through
+ * an unchecked cast, so older documents can be missing `label`/`area`/`street`.
+ * Coerce every field so the form inputs are always controlled.
+ */
+function toAddressDraft(address: Address): Omit<Address, "id"> {
+  return {
+    label: address.label ?? "",
+    name: address.name ?? "",
+    phone: address.phone ?? "",
+    house: address.house ?? "",
+    street: address.street ?? "",
+    area: address.area ?? "",
+    city: address.city ?? "",
+    pincode: address.pincode ?? "",
+  };
+}
+
+function formatAddressLines(address: Address) {
+  return [address.house, address.street, address.area].filter(Boolean).join(", ");
+}
+
 function ProfilePage() {
   const { profile, addresses, updateProfile, saveAddress, deleteAddress } = useStore();
   const [form, setForm] = useState(profile);
   const [verifyingUpi, setVerifyingUpi] = useState(false);
-  const [editingAddress, setEditingAddress] = useState(false);
-
-  const firstAddress = addresses[0] ?? null;
-
-  const [addrForm, setAddrForm] = useState({
-    addressLine1: profile.addressLine1 ?? firstAddress?.house ?? "",
-    addressLine2: profile.addressLine2 ?? firstAddress?.street ?? "",
-    city: profile.city ?? firstAddress?.city ?? "",
-    state: profile.state ?? "",
-    zip: profile.zip ?? firstAddress?.pincode ?? "",
-    country: profile.country ?? "India",
-  });
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Omit<Address, "id">>(() => emptyAddressDraft(profile));
 
   const setPayoutField = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
   };
 
-  const setAddrField = <K extends keyof typeof addrForm>(key: K, value: (typeof addrForm)[K]) => {
-    setAddrForm((a) => ({ ...a, [key]: value }));
+  const setDraftField = <K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) => {
+    setDraft((d) => ({ ...d, [key]: value }));
   };
 
-  const saveAddressFields = () => {
-    if (!addrForm.addressLine1.trim() || !addrForm.city.trim() || !addrForm.state.trim() || !addrForm.zip.trim() || !addrForm.country.trim()) {
-      toast.error("Fill in all required address fields.");
+  const resetDraft = () => {
+    setEditingAddressId(null);
+    setDraft(emptyAddressDraft(profile));
+  };
+
+  const openEditAddress = (address: Address) => {
+    setEditingAddressId(address.id);
+    setDraft(toAddressDraft(address));
+  };
+
+  const submitAddress = () => {
+    const label = draft.label.trim();
+    const name = draft.name.trim();
+    const house = draft.house.trim();
+    const city = draft.city.trim();
+    const pincode = draft.pincode.trim();
+
+    if (!label || !name || !house || !city || !pincode) {
+      toast.error("Add a label, name, house, city and pincode.");
       return;
     }
-    updateProfile({
-      ...form,
-      addressLine1: addrForm.addressLine1.trim(),
-      addressLine2: addrForm.addressLine2.trim(),
-      city: addrForm.city.trim(),
-      state: addrForm.state.trim(),
-      zip: addrForm.zip.trim(),
-      country: addrForm.country.trim(),
+
+    saveAddress({
+      id: editingAddressId ?? `addr-${Date.now()}`,
+      label,
+      name,
+      phone: draft.phone.trim(),
+      house,
+      street: draft.street.trim(),
+      area: draft.area.trim(),
+      city,
+      pincode,
     });
-    if (firstAddress) {
-      saveAddress({
-        ...firstAddress,
-        house: addrForm.addressLine1.trim(),
-        street: addrForm.addressLine2.trim(),
-        city: addrForm.city.trim(),
-        pincode: addrForm.zip.trim(),
-      });
-    } else {
-      saveAddress({
-        id: `addr-${Date.now()}`,
-        label: "Home",
-        name: form.name,
-        phone: form.phone,
-        house: addrForm.addressLine1.trim(),
-        street: addrForm.addressLine2.trim(),
-        area: "",
-        city: addrForm.city.trim(),
-        pincode: addrForm.zip.trim(),
-      });
-    }
-    setEditingAddress(false);
-    toast.success("Address saved");
+
+    toast.success(editingAddressId ? "Address updated" : "Address saved");
+    resetDraft();
   };
 
   useEffect(() => {
@@ -118,7 +144,7 @@ function ProfilePage() {
                   <Label className="text-xs font-semibold text-subtle">{label}</Label>
                   <Input
                     className="mt-2"
-                    value={form[key]}
+                    value={form[key] ?? ""}
                     onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
                   />
                 </div>
@@ -278,92 +304,175 @@ function ProfilePage() {
           </div>
         </div>
 
+
+        {/* ========================================
+            DELIVERY ADDRESSES
+            ======================================== */}
+
         <div className="card-surface p-5 md:p-6">
-          <div className="flex items-center justify-between">
-            <h2 className="inline-flex items-center gap-2 text-base font-semibold">
-              <MapPin className="h-4 w-4 text-primary" /> Delivery addresses
-            </h2>
-            {firstAddress && !editingAddress && (
-              <Button variant="outline" size="sm" onClick={() => setEditingAddress(true)}>
-                <Pencil className="h-4 w-4" /> Edit
-              </Button>
+          <h2 className="inline-flex items-center gap-2 text-base font-semibold">
+            <MapPin className="h-4 w-4 text-primary" /> Delivery addresses
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Label the places you get printed delivered to. Every saved address
+            shows up when you choose delivery for an order.
+          </p>
+
+          {/* Saved addresses, one box per address */}
+
+          <div className="mt-5 space-y-3">
+            {addresses.length === 0 && (
+              <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                No saved addresses yet. Add one below to check out faster.
+              </p>
             )}
+
+            {addresses.map((address) => (
+              <div
+                key={address.id}
+                className="rounded-lg border border-border p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">
+                      {address.label} &middot; {address.name}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {formatAddressLines(address)}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {address.city} - {address.pincode}
+                    </p>
+                    {address.phone && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {address.phone}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex shrink-0 gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openEditAddress(address)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" /> Edit
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      aria-label={`Delete ${address.label} address`}
+                      onClick={() => {
+                        deleteAddress(address.id);
+                        if (editingAddressId === address.id) resetDraft();
+                        toast.success(
+                          `${address.label} address removed`,
+                        );
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
 
-          <div className="mt-5">
-            <div className="grid gap-4 sm:grid-cols-2">
+          {/* Add / edit form, inline on the page */}
+
+          <div className="mt-6 border-t border-border pt-5">
+            <h3 className="text-sm font-semibold">
+              {editingAddressId
+                ? "Edit this address"
+                : "Add a new address"}
+            </h3>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <div className="sm:col-span-2">
-                <Label className="text-xs font-semibold text-subtle">Address Line 1 *</Label>
+                <Label className="text-xs font-semibold text-subtle">
+                  Label *
+                </Label>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {ADDRESS_LABELS.map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() =>
+                        setDraftField("label", preset)
+                      }
+                      className={cn(
+                        "rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+                        draft.label === preset
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border hover:bg-secondary",
+                      )}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
                 <Input
                   className="mt-2"
-                  value={addrForm.addressLine1}
-                  onChange={(e) => setAddrField("addressLine1", e.target.value)}
-                  placeholder="House / Flat / Building"
+                  value={draft.label ?? ""}
+                  placeholder="Or type your own label"
+                  onChange={(e) =>
+                    setDraftField("label", e.target.value)
+                  }
                 />
               </div>
-              <div className="sm:col-span-2">
-                <Label className="text-xs font-semibold text-subtle">Area </Label>
-                <Input
-                  className="mt-2"
-                  value={addrForm.addressLine2}
-                  onChange={(e) => setAddrField("addressLine2", e.target.value)}
-                  placeholder="Street / Landmark"
-                />
-              </div>
-              <div>
-                <Label className="text-xs font-semibold text-subtle">City *</Label>
-                <Input
-                  className="mt-2"
-                  value={addrForm.city}
-                  onChange={(e) => setAddrField("city", e.target.value)}
-                />
-              </div>
-              <div>
-                <Label className="text-xs font-semibold text-subtle">State *</Label>
-                <Input
-                  className="mt-2"
-                  value={addrForm.state}
-                  onChange={(e) => setAddrField("state", e.target.value)}
-                />
-              </div>
-              <div>
-                <Label className="text-xs font-semibold text-subtle">ZIP / Postal Code *</Label>
-                <Input
-                  className="mt-2"
-                  value={addrForm.zip}
-                  onChange={(e) => setAddrField("zip", e.target.value)}
-                />
-              </div>
-              <div>
-                <Label className="text-xs font-semibold text-subtle">Country *</Label>
-                <Input
-                  className="mt-2"
-                  value={addrForm.country}
-                  onChange={(e) => setAddrField("country", e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="mt-4 flex items-center gap-3">
-              <Button onClick={saveAddressFields}>Save address</Button>
-              {firstAddress && (
-                <Button
-                  variant="ghost"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => {
-                    deleteAddress(firstAddress.id);
-                    toast.success("Address removed");
-                    setAddrForm({
-                      addressLine1: "",
-                      addressLine2: "",
-                      city: "",
-                      state: "",
-                      zip: "",
-                      country: "India",
-                    });
-                    setEditingAddress(false);
-                  }}
+
+              {(
+                [
+                  ["name", "Full name", "text"],
+                  ["phone", "Phone number", "tel"],
+                  ["house", "House / Flat / Building *", "text"],
+                  ["street", "Street / Landmark", "text"],
+                  ["area", "Area", "text"],
+                  ["city", "City *", "text"],
+                  ["pincode", "PIN / Postal Code *", "text"],
+                ] as const
+              ).map(([key, fieldLabel, type]) => (
+                <div
+                  key={key}
+                  className={
+                    key === "house" || key === "street" || key === "area"
+                      ? "sm:col-span-2"
+                      : undefined
+                  }
                 >
-                  <Trash2 className="h-4 w-4" /> Remove
+                  <Label className="text-xs font-semibold text-subtle">
+                    {fieldLabel}
+                  </Label>
+                  <Input
+                    className="mt-2"
+                    type={type}
+                    value={draft[key] ?? ""}
+                    placeholder={fieldLabel.replace(" *", "")}
+                    autoComplete={
+                      key === "name"
+                        ? "name"
+                        : key === "phone"
+                          ? "tel"
+                          : "street-address"
+                    }
+                    onChange={(e) =>
+                      setDraftField(key, e.target.value)
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 flex items-center gap-3">
+              <Button onClick={submitAddress}>
+                {editingAddressId
+                  ? "Save changes"
+                  : "Save address"}
+              </Button>
+              {editingAddressId && (
+                <Button variant="ghost" onClick={resetDraft}>
+                  Cancel
                 </Button>
               )}
             </div>

@@ -2,7 +2,7 @@
 
 import { Link, useNavigate } from "@/lib/navigation";
 import { Printer } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -15,29 +15,106 @@ import { useStore } from "@/lib/store";
 
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { signInWithGoogle } from "@/lib/auth-google";
 import {
-  AccountRole,
+  beginGoogleSignIn,
+  describeGoogleAuthError,
+  isGoogleAuthCancelled,
+  type GooglePortalRole,
+} from "@/lib/auth-google";
+import {
   AccountStatus,
   UserAccount,
 } from "@/types";
 import Image from "next/image";
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+
+/**
+ * AuthPage reads `?next=` through useSearchParams, which bails the route out of
+ * prerendering. Next.js requires a Suspense boundary above it or the production
+ * build fails, so every auth route mounts it through here.
+ */
+export function AuthPageRoute({
+  role,
+  mode,
+}: {
+  role: GooglePortalRole;
+  mode: "login" | "signup";
+}) {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-background">
+          <p className="text-sm text-muted-foreground">
+            Loading sign in…
+          </p>
+        </main>
+      }
+    >
+      <AuthPage role={role} mode={mode} />
+    </Suspense>
+  );
+}
+
+/**
+ * Only a same-origin absolute path may be used as a post-login destination.
+ * Rejects protocol-relative (`//evil.com`) and backslash (`/\evil.com`) forms,
+ * which browsers resolve as a different origin.
+ */
+function sanitizeReturnPath(
+  value: string | null,
+): string | null {
+  if (!value) return null;
+  if (!value.startsWith("/")) return null;
+  if (value.startsWith("//")) return null;
+  if (value.startsWith("/\\")) return null;
+  return value;
+}
+
 export function AuthPage({
   role,
   mode,
 }: {
-  role: AccountRole;
+  role: GooglePortalRole;
   mode: "login" | "signup";
 }) {
   const navigate = useNavigate();
 
+  /*
+   * Set by `useRequireCustomer` when a signed-out visitor is turned away from
+   * a customer-only route, so they resume where they were headed.
+   */
+  const searchParams = useSearchParams();
+  const returnPath = sanitizeReturnPath(
+    searchParams.get("next"),
+  );
+
   const {
     signIn,
     createAccount,
-    createAccountForAuthUser,
     getAccount,
-    getAccountByEmail,
+    session,
+    ready,
   } = useAuth();
+
+  /*
+   * Sends an already signed-in visitor where they belong.
+   *
+   * `useRequireCustomer` sets `?next=` when a signed-out visitor is turned away
+   * from a customer-only route, so they resume where they were headed. This also
+   * covers Google sign-in, which resolves in a popup and leaves this page
+   * mounted, so the session arrives here rather than on a fresh load.
+   */
+  useEffect(() => {
+    if (!ready || !session) return;
+    navigate({
+      to:
+        session.role === "shopkeeper"
+          ? "/shop"
+          : (returnPath ?? (session.role === "customer" ? "/" : "/")),
+      replace: true,
+    });
+  }, [session, ready, navigate, returnPath]);
 
   const { orderDraft } = useStore();
 
@@ -51,13 +128,17 @@ export function AuthPage({
   const isShop = role === "shopkeeper";
   const isCreate = mode === "signup";
 
-  const alternate = isCreate
-    ? isShop
-      ? "/auth/shop/login"
-      : "/auth/customer/login"
-    : isShop
-      ? "/auth/shop/create-account"
-      : "/auth/customer/create-account";
+  const alternate =
+    (isCreate
+      ? isShop
+        ? "/auth/shop/login"
+        : "/auth/customer/login"
+      : isShop
+        ? "/auth/shop/create-account"
+        : "/auth/customer/create-account") +
+    (returnPath
+      ? `?next=${encodeURIComponent(returnPath)}`
+      : "");
 
   /*
    * ==========================================
@@ -237,15 +318,14 @@ export function AuthPage({
     /*
      * Shopkeepers go to shop dashboard.
      *
-     * Customers return to an existing order
-     * when an order draft exists.
+     * Customers go back to the route that sent them here, falling back to an
+     * existing order draft, then to the home page.
      */
     navigate({
       to: isShop
         ? "/shop"
-        : orderDraft
-          ? "/order"
-          : "/",
+        : (returnPath ??
+          (orderDraft ? "/order" : "/")),
     });
   };
 
@@ -486,15 +566,17 @@ export function AuthPage({
           LEFT IMAGE PANEL
           ======================================== */}
 
-      <section className="relative hidden h-screen overflow-hidden lg:sticky lg:top-0 lg:block">
-        <Image
-          src="/newloginimage.png"
-          alt="XEROXMATE Login"
-          fill
-          priority
-          sizes="50vw"
-          className="object-cover"
-        />
+      <section className="hidden h-screen lg:sticky lg:top-0 lg:block">
+        <div className="relative h-full w-full overflow-hidden">
+          <Image
+            src="/newloginimage.png"
+            alt="XEROXMATE Login"
+            fill
+            priority
+            sizes="50vw"
+            className="object-cover"
+          />
+        </div>
       </section>
 
       {/* ========================================
@@ -644,93 +726,28 @@ export function AuthPage({
 
               setLoading(true);
 
+              /*
+               * Google's account chooser opens in a popup, so this page stays
+               * mounted. Firebase creates the auth user and AuthProvider writes
+               * the matching users/{uid} profile from its auth listener, which
+               * sets the session and navigates above — the same two steps the
+               * password button performs.
+               */
               try {
-                const result =
-                  await signInWithGoogle();
-
-                if (
-                  !result.ok ||
-                  !result.user
-                ) {
-                  if (!result.cancelled) {
-                    toast.error(
-                      result.error ??
-                        "Unable to sign in with Google. Please try again.",
-                    );
-                  }
-
-                  return;
-                }
-
-                const googleUser = result.user;
-
-                /*
-                 * The Firestore account is keyed on the Firebase
-                 * uid, so a brand new Google identity has no
-                 * account document yet — that is the sign-up.
-                 */
-                let account =
-                  await getAccount(googleUser.uid);
-
-                if (!account) {
-                  if (!isCreate) {
-                    const existing =
-                      await getAccountByEmail(
-                        googleUser.email,
-                      );
-
-                    toast.error(
-                      existing
-                        ? `An account with this email already exists${
-                            existing.role !== role
-                              ? ` as a ${existing.role}`
-                              : ""
-                          }. Sign in with your password instead.`
-                        : "No account is linked to this Google account. Create an account first.",
-                    );
-
-                    await auth.signOut();
-
-                    return;
-                  }
-
-                  const created =
-                    await createAccountForAuthUser(
-                      googleUser.uid,
-                      {
-                        email: googleUser.email,
-                        name: googleUser.name,
-                        role,
-                        phone: phone.trim(),
-                      },
-                    );
-
-                  if (typeof created === "string") {
-                    toast.error(created);
-
-                    await auth.signOut();
-
-                    return;
-                  }
-
-                  account = created;
-                }
-
-                if (account.role !== role) {
-                  toast.error(
-                    `This account is registered as a ${account.role}.`,
+                await beginGoogleSignIn(role);
+              } catch (error) {
+                if (!isGoogleAuthCancelled(error)) {
+                  console.error(
+                    "Google sign-in failed:",
+                    error,
                   );
 
-                  await auth.signOut();
-
-                  return;
+                  toast.error(
+                    describeGoogleAuthError(
+                      error,
+                    ),
+                  );
                 }
-
-                await completeSignIn(account, {
-                  displayName: googleUser.name,
-                  email: googleUser.email,
-                  phoneNumber: phone.trim() || null,
-                });
               } finally {
                 setLoading(false);
               }

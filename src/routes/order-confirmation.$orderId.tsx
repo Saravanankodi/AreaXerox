@@ -4,6 +4,7 @@ import { CustomerShell } from "@/components/layout/CustomerShell";
 import { Button } from "@/components/ui/button";
 import { OnlinePaymentState } from "@/components/OnlinePaymentState";
 import { PayNowCard } from "@/components/PayNowCard";
+import { useRequireCustomer } from "@/lib/auth";
 import { useStore } from "@/lib/store";
 import { inr } from "@/lib/pricing";
 
@@ -26,8 +27,12 @@ export const Route = createFileRoute("/order-confirmation/$orderId")({
 });
 
 function OrderConfirmation() {
+  const allowed = useRequireCustomer();
   const { orderId } = Route.useParams();
   const { orders, hydrated } = useStore();
+
+  if (!allowed) return null;
+
   const order = orders.find((o) => o.id === orderId);
 
   if (!order) {

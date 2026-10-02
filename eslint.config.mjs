@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // One-off local scripts (diagnostics, data pre-flight checks).
+    "tmp/**",
   ]),
 ]);
 

@@ -8,6 +8,7 @@ import {
   Star,
   ArrowLeft,
   LogOut,
+  Wallet,
 } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 
 const nav = [
   { to: "/shop", label: "Dashboard", icon: LayoutDashboard, exact: true },
+  { to: "/shop/wallet", label: "Wallet", icon: Wallet },
   { to: "/shop/orders", label: "Orders", icon: ClipboardList },
   { to: "/shop/reviews", label: "Reviews", icon: Star },
   { to: "/shop/services", label: "Print Services", icon: Printer },

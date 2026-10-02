@@ -57,7 +57,7 @@ export function NotificationBell() {
             {unreadCount > 0 && (
               <button
                 type="button"
-                onClick={() => markAllNotificationsRead(recipientId)}
+                onClick={() => markAllNotificationsRead()}
                 className="text-xs font-medium text-primary hover:underline"
               >
                 Mark all read

@@ -8,6 +8,7 @@ import {
 } from "firebase-admin/app";
 import { getAuth, type DecodedIdToken } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
+import { getMessaging, type Messaging } from "firebase-admin/messaging";
 
 import type { AccountRole } from "@/types";
 
@@ -60,6 +61,21 @@ export function getAdminApp(): App {
 
 export function getAdminFirestore(): Firestore {
   return getFirestore(getAdminApp());
+}
+
+/**
+ * Lazily initialised Cloud Messaging instance for browser push (Phase 2).
+ *
+ * FCM itself is free on the Spark plan, so this needs no billing change. A
+ * *Firestore-triggered* push worker would need Blaze, but sending inline from
+ * a route handler does not.
+ */
+const messagingRef: { current: Messaging | null } = { current: null };
+
+export function getAdminMessaging(): Messaging {
+  if (messagingRef.current) return messagingRef.current;
+  messagingRef.current = getMessaging(getAdminApp());
+  return messagingRef.current;
 }
 
 export interface VerifiedUser {

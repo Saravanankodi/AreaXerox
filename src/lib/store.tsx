@@ -33,15 +33,21 @@ import {
   createFirestoreOrder,
   updateOrderStatusInFirestore,
   listenToAllOrders,
-  collectPartialPaymentInDb,
+  listenToUserOrders,
 } from "@/lib/firestore/orders";
 import {
   createReviewInDb,
   listenToReviews,
   updateReviewReplyInDb,
 } from "@/lib/firestore/reviews";
+import { listenToNotifications } from "@/lib/firebase/notifications-client";
+import {
+  fireAndForget,
+  markAllNotificationsReadRemote,
+  markNotificationReadRemote,
+} from "@/services/notifications.service";
 import { useAuth } from "@/lib/auth";
-import { collectBalanceInDb } from "@/services/order.service";
+import { collectOrderPayment as collectOrderPaymentApi } from "@/services/wallet.service";
 import { nextStatus, orderStatusLabel } from "@/lib/labels";
 import {
   getShopkeeperApplication as fetchShopkeeperApplication,
@@ -94,19 +100,60 @@ const initialState: AppState = {
   shopkeeperProfiles: {},
 };
 
-// Notifications live in localStorage so mutually-sent alerts (e.g. an order
-// accept) survive a page refresh instead of disappearing on reload.
+// Notifications are a cold-start cache only: Firestore is the source of truth
+// and `listenToNotifications` overwrites this on every load. The key is
+// suffixed with the account UID because the previous flat key mixed
+// notifications from every account that ever used this browser.
 const NOTIFICATIONS_STORAGE_KEY = "xeroxmate-notifications-v1";
 
-function loadPersistedNotifications(): Notification[] {
-  if (typeof window === "undefined") return [];
+/** Bound the cache so localStorage cannot grow without limit. */
+const MAX_CACHED_NOTIFICATIONS = 50;
+
+function notificationsStorageKey(uid: string): string {
+  return `${NOTIFICATIONS_STORAGE_KEY}:${uid}`;
+}
+
+/**
+ * Mirrors a read-state change into the cached copy.
+ *
+ * The Firestore listener is authoritative, but writing the cache keeps a
+ * reload from flashing unread badges for notifications the user already opened
+ * while offline.
+ */
+function applyReadState(
+  notifications: Notification[],
+  notificationId: string,
+  nextRead: boolean,
+): Notification[] {
+  return notifications.map((n) => (n.id === notificationId ? { ...n, read: nextRead } : n));
+}
+
+function loadPersistedNotifications(uid: string): Notification[] {
+  if (typeof window === "undefined" || !uid) return [];
   try {
-    const raw = window.localStorage.getItem(NOTIFICATIONS_STORAGE_KEY);
+    // The pre-per-account cache cannot be attributed to this user; drop it.
+    window.localStorage.removeItem(NOTIFICATIONS_STORAGE_KEY);
+    const raw = window.localStorage.getItem(notificationsStorageKey(uid));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as Notification[]) : [];
+    if (!Array.isArray(parsed)) return [];
+    return (parsed as Notification[])
+      .filter((n) => n && typeof n.id === "string")
+      .slice(0, MAX_CACHED_NOTIFICATIONS);
   } catch {
     return [];
+  }
+}
+
+function persistNotifications(uid: string, notifications: Notification[]): void {
+  if (typeof window === "undefined" || !uid) return;
+  try {
+    window.localStorage.setItem(
+      notificationsStorageKey(uid),
+      JSON.stringify(notifications.slice(0, MAX_CACHED_NOTIFICATIONS)),
+    );
+  } catch {
+    // Quota exceeded or storage disabled — the inbox still works from Firestore.
   }
 }
 
@@ -117,7 +164,7 @@ interface StoreValue extends AppState {
   updateShop: (shopId: string, updater: (shop: Shop) => Shop) => void;
   placeOrder: (order: Order) => Promise<Order>;
   advanceOrder: (orderId: string, status: OrderStatus) => Promise<void>;
-  collectBalance: (orderId: string, via: "cash" | "upi" | "card") => void;
+  collectBalance: (orderId: string, via: "cash" | "upi" | "card") => Promise<void>;
   saveAddress: (address: Address) => void;
   deleteAddress: (id: string) => void;
   updateProfile: (profile: CustomerProfile) => void;
@@ -138,13 +185,17 @@ interface StoreValue extends AppState {
   createShop: (shop: Omit<Shop, "id">) => Promise<string>;
   submitShopkeeperApplication: (application: ShopApplication) => void;
   getShopkeeperApplication: (accountId: string) => ShopApplication | undefined;
-  addReview: (review: Review) => void;
+  addReview: (review: Review) => Promise<void>;
   addNotification: (notification: Notification) => void;
   markNotificationRead: (id: string) => void;
-  markAllNotificationsRead: (recipientId: string) => void;
+  markAllNotificationsRead: () => void;
   getUnreadCount: (recipientId: string) => number;
   cancelOrder: (orderId: string) => boolean;
-  collectOrderPayment: (orderId: string, amount: number, via?: "cash" | "upi" | "card") => void;
+  collectOrderPayment: (
+    orderId: string,
+    amount: number,
+    via?: "cash" | "upi" | "card",
+  ) => Promise<void>;
   replyToReview: (reviewId: string, text: string) => void;
 }
 
@@ -207,7 +258,57 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [pendingUploadFiles, setPendingUploadFilesState] = useState<File[]>([]);
   const pendingUploadFilesRef = useRef<File[]>([]);
   const uploadedFilesMapRef = useRef<Map<string, File>>(new Map());
-  const [hydrated, setHydrated] = useState(false);
+  const [ordersLoaded, setOrdersLoaded] = useState(false);
+  // Account the current `state.orders` snapshot belongs to, so switching
+  // accounts in the same tab never renders the previous user's orders.
+  const [ordersOwner, setOrdersOwner] = useState<string | null>(null);
+  // Account the current `state.notifications` snapshot belongs to, so switching
+  // accounts in the same tab never renders the previous user's inbox. Mirrors
+  // `ordersOwner` above: gate on ownership rather than clearing inside the
+  // effect, which would trigger a cascading render.
+  const [notificationsOwner, setNotificationsOwner] = useState<string | null>(null);
+
+  // Notification inbox. Firestore is the source of truth; localStorage is only
+  // a cold-start cache that fills in if the listener cannot connect.
+  useEffect(() => {
+    const uid = session?.accountId;
+    // No account means no inbox. `notificationsOwner` stays at its previous
+    // value, but the gate below already hides the list from a signed-out user.
+    if (!uid) return;
+
+    const unsubscribe = listenToNotifications(
+      uid,
+      (notifications) => {
+        setNotificationsOwner(uid);
+        setState((s) => ({ ...s, notifications }));
+      },
+      (error) => {
+        console.warn("Notifications listener failed:", error);
+        setNotificationsOwner(uid);
+        setState((s) =>
+          s.notifications.length ? s : { ...s, notifications: loadPersistedNotifications(uid) },
+        );
+      },
+    );
+
+    return () => unsubscribe();
+    // `setNotificationsOwner` is a stable state setter; the account is the only
+    // thing that should re-subscribe.
+  }, [session?.accountId]);
+
+  // Hide the inbox entirely while it belongs to a different account than the
+  // one signed in now, so the previous user's alerts never flash on screen.
+  const notifications = useMemo(
+    () =>
+      !session?.accountId || notificationsOwner === session.accountId ? state.notifications : [],
+    [state.notifications, notificationsOwner, session],
+  );
+
+  // Mirror the inbox into the per-account cache for the next cold start.
+  useEffect(() => {
+    if (!session?.accountId || notificationsOwner !== session.accountId) return;
+    persistNotifications(session.accountId, state.notifications);
+  }, [session?.accountId, notificationsOwner, state.notifications]);
 
   // Subscribe to Shops in Firestore
   useEffect(() => {
@@ -254,23 +355,55 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
 
   // Subscribe to Orders in Firestore (Real-Time updates)
+  //
+  // A customer only ever subscribes to their own orders, so the store never
+  // holds another customer's orders and the shopkeeper order pages keep their
+  // full-collection view.
   useEffect(() => {
-    const unsubscribeOrders = listenToAllOrders(
-      (firestoreOrders) => {
-        setState((s) => ({
-          ...s,
-          orders: firestoreOrders,
-        }));
-        setHydrated(true);
-        void backfillMissingOrderCustomers(firestoreOrders);
-      },
-      (error) => {
-        console.warn("Failed to subscribe to orders in Firestore, continuing with hydration:", error);
-        setHydrated(true);
-      }
-    );
+    if (!session?.accountId) return;
+
+    // Recorded against every snapshot, whichever subscription produced it, so a
+    // later sign-in cannot keep rendering the previous account's orders.
+    const scope = session.accountId;
+
+    const onUpdate = (firestoreOrders: Order[]) => {
+      setOrdersOwner(scope);
+      setState((s) => ({
+        ...s,
+        orders: firestoreOrders,
+      }));
+      setOrdersLoaded(true);
+      void backfillMissingOrderCustomers(firestoreOrders);
+    };
+
+    const onError = (error: unknown) => {
+      console.warn("Failed to subscribe to orders in Firestore, continuing with hydration:", error);
+      setOrdersLoaded(true);
+    };
+
+    const unsubscribeOrders =
+      session.role === "customer"
+        ? listenToUserOrders(
+          scope,
+          onUpdate,
+          onError,
+        )
+        : listenToAllOrders(onUpdate, onError);
+
     return () => unsubscribeOrders();
-  }, []);
+  }, [session?.accountId, session?.role]);
+
+  const orders = useMemo(
+    () =>
+      ordersOwner === null || ordersOwner === session?.accountId
+        ? state.orders
+        : [],
+    [state.orders, ordersOwner, session?.accountId],
+  );
+
+  // Without an account there is no order subscription to wait for, so the
+  // order pages are never stuck on their loading state.
+  const hydrated = ordersLoaded || !session?.accountId;
 
   // Subscribe to Reviews in Firestore so shopkeepers see persisted customer reviews.
   useEffect(() => {
@@ -284,36 +417,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     );
     return () => unsubscribeReviews();
   }, []);
-
-  // Re-hydrate persisted notifications from localStorage (client only).
-  // Scheduled asynchronously (after hydration) to avoid a sync setState in an
-  // effect and to keep server-rendered markup stable.
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const persisted = loadPersistedNotifications();
-      if (persisted.length) {
-        setState((s) => {
-          const known = new Set(s.notifications.map((n) => n.id));
-          const fresh = persisted.filter((n) => !known.has(n.id));
-          return fresh.length ? { ...s, notifications: [...fresh, ...s.notifications] } : s;
-        });
-      }
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  // Persist every notification change to localStorage.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(
-        NOTIFICATIONS_STORAGE_KEY,
-        JSON.stringify(state.notifications),
-      );
-    } catch {
-      // Storage full / unavailable — notifications remain in-memory only.
-    }
-  }, [state.notifications]);
 
   // Hydrate the current shopkeeper's application (used synchronously during render).
   useEffect(() => {
@@ -403,24 +506,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [state.orders],
   );
 
-  const collectBalance = useCallback((orderId: string, via: "cash" | "upi" | "card") => {
+/**
+   * Collects whatever is outstanding on an order.
+   *
+   * Both collection paths now go through `/api/orders/collect`, which verifies
+   * shop ownership, clamps the amount to the real balance, and credits the wallet
+   * in the same transaction. Neither updates local state optimistically any
+   * more: a rejected call (not the owner, already collected, offline) would
+   * otherwise leave the shopkeeper looking at a payment that was never recorded.
+   */
+  const collectBalance = useCallback(async (orderId: string, via: "cash" | "upi" | "card") => {
+    const order = state.orders.find((o) => o.id === orderId);
+    if (!order || order.balance <= 0) return;
+
+    const result = await collectOrderPaymentApi({ orderId, amount: order.balance, via });
+
     setState((s) => ({
       ...s,
-      orders: s.orders.map((o) =>
-        o.id === orderId
-          ? {
-            ...o,
-            amountPaid: o.price.total,
-            balance: 0,
-            paymentStatus: "paid",
-            balanceCollectedVia: via,
-            updatedAt: new Date().toISOString(),
-          }
-          : o,
-      ),
+      orders: s.orders.map((o) => (o.id === orderId ? result.order : o)),
     }));
-    collectBalanceInDb(orderId, via).catch(console.error);
-  }, []);
+  }, [state.orders]);
 
   const saveAddress = useCallback(
     (address: Address) => {
@@ -547,16 +652,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [state.shopkeeperApplications],
   );
 
-  const addReview = useCallback((review: Review) => {
-      setState((s) => ({
-        ...s,
-        reviews: s.reviews.some((r) => r.id === review.id)
-          ? s.reviews.map((r) => (r.id === review.id ? review : r))
-          : [review, ...s.reviews],
-      }));
-      createReviewInDb(review).catch(console.error);
-    }, []);
+  /**
+   * Optimistically adds the review, then persists it. The returned promise
+   * resolves once Firestore has committed, so callers that notify a third
+   * party (the shop) can do so after the document actually exists — otherwise
+   * the server-side event resolver would 404 on its own read.
+   */
+  const addReview = useCallback(async (review: Review): Promise<void> => {
+    setState((s) => ({
+      ...s,
+      reviews: s.reviews.some((r) => r.id === review.id)
+        ? s.reviews.map((r) => (r.id === review.id ? review : r))
+        : [review, ...s.reviews],
+    }));
+    await createReviewInDb(review);
+  }, []);
 
+  /**
+   * Notifications are created server-side from business events (see
+   * `src/services/notifications.service.ts`). This setter remains only as an
+   * escape hatch for locally-synthesised UI and must not be used to notify
+   * another user — the server rejects forged recipients at the API boundary.
+   */
   const addNotification = useCallback((notification: Notification) => {
     setState((s) => ({
       ...s,
@@ -564,24 +681,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  // Read state is written optimistically so the badge responds immediately,
+  // then persisted via the API route, which scopes the update to the verified
+  // caller. A failed write is reverted on the next Firestore snapshot.
   const markNotificationRead = useCallback((id: string) => {
     setState((s) => ({
       ...s,
-      notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)),
+      notifications: applyReadState(s.notifications, id, true),
     }));
+    fireAndForget(() => markNotificationReadRemote(id), "mark read");
   }, []);
 
-  const markAllNotificationsRead = useCallback(
-    (recipientId: string) => {
-      setState((s) => ({
-        ...s,
-        notifications: s.notifications.map((n) =>
-          n.recipientId === recipientId ? { ...n, read: true } : n,
-        ),
-      }));
-    },
-    [],
-  );
+  const markAllNotificationsRead = useCallback(() => {
+    setState((s) => ({
+      ...s,
+      notifications: s.notifications.map((n) => ({ ...n, read: true })),
+    }));
+    fireAndForget(() => markAllNotificationsReadRemote(), "mark all read");
+  }, []);
 
   const getUnreadCount = useCallback(
     (recipientId: string) => {
@@ -609,30 +726,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const collectOrderPayment = useCallback(
-    (orderId: string, amount: number, via: "cash" | "upi" | "card" = "cash") => {
+    async (orderId: string, amount: number, via: "cash" | "upi" | "card" = "cash") => {
       const order = state.orders.find((o) => o.id === orderId);
       if (!order || order.balance <= 0) return;
-      const remaining = Math.max(0, order.balance - amount);
+
+      const result = await collectOrderPaymentApi({ orderId, amount, via });
 
       setState((s) => ({
         ...s,
-        orders: s.orders.map((o) => {
-          if (o.id !== orderId) return o;
-          return {
-            ...o,
-            amountPaid: Math.min(o.price.total, o.amountPaid + amount),
-            balance: remaining,
-            paymentStatus: remaining <= 0 ? "paid" : "partial",
-            balanceCollectedVia: via,
-            updatedAt: new Date().toISOString(),
-          };
-        }),
+        orders: s.orders.map((o) => (o.id === orderId ? result.order : o)),
       }));
-
-      collectPartialPaymentInDb(orderId, amount, via).catch(console.error);
-      if (remaining <= 0) {
-        collectBalanceInDb(orderId, via).catch(console.error);
-      }
     },
     [state.orders],
   );
@@ -710,6 +813,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const value = useMemo<StoreValue>(
     () => ({
       ...state,
+      notifications,
+      orders,
       hydrated,
       activeShop,
       setActiveShopId,
@@ -748,6 +853,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }),
     [
       state,
+      notifications,
+      orders,
       hydrated,
       activeShop,
       setActiveShopId,

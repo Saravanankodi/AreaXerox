@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Bell, Lock, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { CustomerShell, PageHeader } from "@/components/layout/CustomerShell";
+import { PushNotificationsSetting } from "@/components/PushNotificationsSetting";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -42,6 +43,8 @@ function SettingsPage() {
       <PageHeader title="Settings" subtitle="Notifications, privacy and account controls." />
 
       <div className="container-page max-w-3xl space-y-6 pb-16">
+        <PushNotificationsSetting />
+
         <div className="card-surface p-5 md:p-6">
           <h2 className="inline-flex items-center gap-2 text-base font-semibold">
             <Bell className="h-4 w-4 text-primary" /> Notifications

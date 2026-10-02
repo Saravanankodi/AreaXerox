@@ -82,45 +82,22 @@ export async function updateOrderStatusInFirestore(
 }
 
 /**
- * Persists a cash/UPI/card collection (full or partial) against an order.
- * Reads the current order first so concurrent edits don't wipe other fields,
- * then patches the payment state and marks the order settled when paid.
+ * Cash / UPI / card collection used to live here as a client-side write, which
+ * let any authenticated user mark any order as paid for any amount. It now runs
+ * server-side through `POST /api/orders/collect`, where shop ownership is
+ * verified, the amount is clamped to the outstanding balance, and the order
+ * update and the wallet credit commit in one transaction.
+ *
+ * Do not re-add a client-side equivalent.
  */
-export async function collectPartialPaymentInDb(
-    orderId: string,
-    amount: number,
-    via: "cash" | "upi" | "card"
-): Promise<void> {
-    const orderRef = doc(db, ORDERS_COLLECTION, orderId);
-    const snap = await getDoc(orderRef);
-
-    if (!snap.exists()) {
-        throw new Error(`Order ${orderId} not found in Firestore.`);
-    }
-
-    const current = snap.data() as Order;
-    const safeAmount = Math.max(0, Math.min(amount, current.balance));
-    const paid = Math.min(current.price.total, (current.amountPaid ?? 0) + safeAmount);
-    const balance = Math.max(0, current.price.total - paid);
-    const paymentStatus = balance <= 0 ? "paid" : safeAmount > 0 ? "partial" : current.paymentStatus;
-
-    const patch: Record<string, unknown> = {
-        amountPaid: paid,
-        balance,
-        paymentStatus,
-        balanceCollectedVia: via,
-        updatedAt: new Date().toISOString(),
-    };
-
-    await updateDoc(orderRef, patch);
-}
 
 /**
  * Subscribes to real-time order updates for a specific customer.
  */
 export function listenToUserOrders(
     customerId: string,
-    onUpdate: (orders: Order[]) => void
+    onUpdate: (orders: Order[]) => void,
+    onError?: (error: unknown) => void
 ): () => void {
     const ordersRef = collection(db, ORDERS_COLLECTION);
     const q = query(ordersRef, where("customerId", "==", customerId));
@@ -134,7 +111,8 @@ export function listenToUserOrders(
             onUpdate(orders);
         },
         (error) => {
-            console.error("Error in listenToUserOrders:", error);
+            console.warn("Warning in listenToUserOrders:", error);
+            if (onError) onError(error);
         }
     );
 }

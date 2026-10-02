@@ -1,6 +1,7 @@
 "use client";
 
 import NextLink from "next/link";
+import { useCallback } from "react";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import type { AnchorHTMLAttributes, ComponentType, PropsWithChildren, ReactNode } from "react";
 
@@ -29,13 +30,22 @@ export function Link({
   );
 }
 
+/**
+ * `useCallback` is load-bearing, not a micro-optimisation: every route guard
+ * lists `navigate` in its dependency array, and a new closure each render would
+ * re-run those guards on every render — including the ones that redirect, which
+ * then fight whatever navigation the app is actually doing.
+ */
 export function useNavigate() {
   const router = useRouter();
-  return ({ to, params, replace }: NavigationTarget) => {
-    const href = resolvePath(to, params);
-    if (replace) router.replace(href);
-    else router.push(href);
-  };
+  return useCallback(
+    ({ to, params, replace }: NavigationTarget) => {
+      const href = resolvePath(to, params);
+      if (replace) router.replace(href);
+      else router.push(href);
+    },
+    [router],
+  );
 }
 
 export function useRouterState<T>({ select }: { select: (state: { location: { pathname: string } }) => T }) {

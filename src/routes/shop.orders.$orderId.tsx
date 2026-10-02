@@ -15,9 +15,9 @@ import { OrderTimeline } from "@/components/OrderTimeline";
 import { PaymentCollection } from "@/components/shopkeeper/PaymentCollection";
 import { ShopShell } from "@/components/layout/ShopShell";
 import { useStore } from "@/lib/store";
-import { createNotification } from "@/lib/notifications";
 import { fulfillmentLabel, nextActionLabel, statusFlow } from "@/lib/labels";
 import { cn } from "@/lib/utils";
+import { fireAndForget, notifyOrderStatusChanged } from "@/services/notifications.service";
 import type { DocumentFile, Order, OrderStatus } from "@/types";
 
 export const Route = createFileRoute("/shop/orders/$orderId")({
@@ -49,8 +49,6 @@ function ShopOrderDetail() {
     orders,
     shops,
     advanceOrder,
-    addNotification,
-    activeShop,
     hydrated,
     getCachedFile,
   } = useStore();
@@ -92,30 +90,11 @@ function ShopOrderDetail() {
         toast.error(`${currentOrder.id} rejected`);
       }
 
-      const statusMessages: Record<OrderStatus, string> = {
-        ACCEPTED: "has been accepted",
-        PRINTING: "is now being printed",
-        FINISHING: "is being finished",
-        READY_PICKUP: "is ready for pickup",
-        READY_DELIVERY: "is ready for delivery",
-        OUT_FOR_DELIVERY: "is out for delivery",
-        DELIVERED: "has been delivered",
-        COMPLETED: "has been completed",
-        NEW: "has been placed",
-        REJECTED: "has been rejected",
-      };
-
-      const notifType = status === "REJECTED" ? "order_rejected" : "order_status_changed";
-      addNotification(
-        createNotification({
-          recipientId: currentOrder.customerId ?? currentOrder.customerPhone,
-          recipientRole: "customer",
-          type: notifType,
-          title: status === "REJECTED" ? "Order Rejected" : `Order ${label}`,
-          message: `Your order ${currentOrder.id} ${statusMessages[status] ?? `moved to ${status}`} by ${activeShop.name}.`,
-          relatedEntityId: currentOrder.id,
-          entityType: "order",
-        }),
+      // Server-resolved: the customer is derived from the order document, so
+      // this no longer trusts `customerId ?? customerPhone` from the client.
+      fireAndForget(
+        () => notifyOrderStatusChanged(currentOrder.id, status),
+        `order status -> ${status}`,
       );
     } catch (error) {
       toast.error((error as Error).message || `Could not update order ${currentOrder.id}.`);

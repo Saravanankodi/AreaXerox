@@ -10,7 +10,7 @@ import {
   where,
   orderBy,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase/firestore";
+import { db } from "@/lib/firebase";
 import type { Order, OrderStatus } from "@/types";
 
 export async function placeOrderInDb(order: Order): Promise<void> {
@@ -36,23 +36,13 @@ export async function advanceOrderStatusInDb(orderId: string, status: OrderStatu
   });
 }
 
-export async function collectBalanceInDb(
-  orderId: string,
-  via: "cash" | "upi" | "card",
-): Promise<void> {
-  const docRef = doc(db, "orders", orderId);
-  const snap = await getDoc(docRef);
-  if (!snap.exists()) return;
-
-  const current = snap.data() as Order;
-  await updateDoc(docRef, {
-    amountPaid: current.price.total,
-    balance: 0,
-    paymentStatus: "paid",
-    balanceCollectedVia: via,
-    updatedAt: new Date().toISOString(),
-  });
-}
+/**
+ * Settling an order's outstanding balance now runs server-side through
+ * `POST /api/orders/collect` (see `@/lib/wallet/server`). It previously wrote
+ * `amountPaid` / `balance` / `paymentStatus` straight from the browser, which
+ * let any authenticated user mark any order as paid. Do not re-add a client-side
+ * equivalent.
+ */
 
 export async function getOrderById(orderId: string): Promise<Order | null> {
   const snap = await getDoc(doc(db, "orders", orderId));

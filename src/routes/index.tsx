@@ -507,10 +507,12 @@ function Index() {
           size="lg"
           disabled={googleLoading}
           onClick={async () => {
-            const signedIn = await signInAsCustomer();
-            if (!signedIn) return;
-            setAuthDialogOpen(false);
-            navigate({ to: "/order" });
+            // Google's account chooser opens in a popup, so this page stays
+            // mounted. AuthProvider provisions the profile and sets the
+            // session, which lifts the auth gate above.
+            if (await signInAsCustomer()) {
+              setAuthDialogOpen(false);
+            }
           }}
         >
           <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">

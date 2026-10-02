@@ -8,6 +8,7 @@ import { ReviewCard } from "@/components/ReviewCard";
 import { PaymentBadge, StatusBadge } from "@/components/StatusBadge";
 import { OnlinePaymentState } from "@/components/OnlinePaymentState";
 import { PayNowCard } from "@/components/PayNowCard";
+import { useRequireCustomer } from "@/lib/auth";
 import { useStore } from "@/lib/store";
 import { calculateDocumentPrices, inr } from "@/lib/pricing";
 import { customerStatusCopy, fulfillmentLabel } from "@/lib/labels";
@@ -31,8 +32,12 @@ export const Route = createFileRoute("/orders/$orderId")({
 });
 
 function OrderDetail() {
+  const allowed = useRequireCustomer();
   const { orderId } = Route.useParams();
   const { orders, shops, hydrated, getCachedFile } = useStore();
+
+  if (!allowed) return null;
+
   const order = orders.find((o) => o.id === orderId);
 
   if (!order) {

@@ -5,12 +5,12 @@ import { Star, CheckCircle, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
-import { createNotification } from "@/lib/notifications";
 import { isOrderReviewable } from "@/lib/labels";
+import { fireAndForget, notifyReviewReceived } from "@/services/notifications.service";
 import type { Order, Review } from "@/types";
 
 export function ReviewCard({ order }: { order: Order }) {
-  const { reviews, shops, addReview, addNotification } = useStore();
+  const { reviews, addReview } = useStore();
   const { session } = useAuth();
 
   const existingReview = reviews.find(
@@ -31,7 +31,7 @@ export function ReviewCard({ order }: { order: Order }) {
   const needsDescription = rating > 0 && rating <= 3;
   const displayRating = hoveredStar || rating;
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!reviewable) {
       toast.error(
         order.status === "REJECTED"
@@ -62,19 +62,10 @@ export function ReviewCard({ order }: { order: Order }) {
         description: description.trim(),
         createdAt: new Date().toISOString(),
       };
-      addReview(review);
-      const shop = shops.find((s) => s.id === order.shopId);
-      addNotification(
-        createNotification({
-          recipientId: shop?.ownerAccountId ?? shop?.id ?? order.shopId,
-          recipientRole: "shopkeeper",
-          type: "review_received",
-          title: "New Review Received",
-          message: `${review.customerName} left a ${review.rating}-star review on order ${order.id}.`,
-          relatedEntityId: review.id,
-          entityType: "review",
-        }),
-      );
+      // Awaited so the document is committed before the server tries to
+      // resolve the recipient from it.
+      await addReview(review);
+      fireAndForget(() => notifyReviewReceived(review.id), "review_received");
       toast.success("Review submitted successfully.");
     } finally {
       setSubmitting(false);

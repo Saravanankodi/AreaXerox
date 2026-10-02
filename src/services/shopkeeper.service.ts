@@ -8,7 +8,7 @@ import {
   query,
   where,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase/firestore";
+import { db } from "@/lib/firebase";
 import type { ShopApplication, ShopkeeperProfile } from "@/types";
 
 export async function getShopkeeperApplication(accountId: string): Promise<ShopApplication | null> {

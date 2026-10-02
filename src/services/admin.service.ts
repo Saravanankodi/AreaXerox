@@ -6,7 +6,7 @@ import {
   updateDoc,
   onSnapshot,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase/firestore";
+import { db } from "@/lib/firebase";
 import type { Account, AccountStatus, ShopApplication } from "@/types";
 import { buildShopFromApplication, saveShop } from "./shop.service";
 import { getShopByOwner } from "@/lib/firestore/shops";
