@@ -329,11 +329,31 @@ async function findUserByEmail(
 
 /* =========================================================
  * STRICT ACCOUNT LOOKUP
+ *
+ * `users` and `shopkeepers` are queried by email. `admins` is
+ * read by document id only, never queried.
+ *
+ * firestore.rules permits `admins/{uid}` when
+ * `request.auth.uid == adminId` and denies every other read. A
+ * `where("email", "==", ...)` query over the collection cannot be
+ * proven to satisfy that for all candidate documents, so Firestore
+ * rejects the entire query with permission-denied. That broke
+ * Google sign-in for every user, because createGoogleAccount()
+ * scans all three collections before provisioning and treated the
+ * denial as "could not reach the database".
+ *
+ * The cost of the point read: an `admins` document whose email
+ * matches but whose uid differs from the signed-in uid is no
+ * longer detectable from the client. Admins are provisioned as
+ * `admins/{authUid}` (tmp/bootstrap-admin.mjs), so the same
+ * account always resolves to the same uid and this cannot mask a
+ * real collision.
  * ======================================================= */
 
 async function findAccountByEmailStrict(
   email: string,
   role?: AccountRole,
+  authUid?: string,
 ): Promise<UserAccount | undefined> {
   const normalizedEmail =
     email.trim().toLowerCase();
@@ -347,7 +367,6 @@ async function findAccountByEmailStrict(
   for (const collectionName of [
     "users",
     "shopkeepers",
-    "admins",
   ]) {
     const snap = await getDocs(
       query(
@@ -366,6 +385,50 @@ async function findAccountByEmailStrict(
           docSnap.id,
           docSnap.data(),
         ),
+      );
+    }
+  }
+
+  if (authUid) {
+    try {
+      const adminSnap =
+        await getDoc(
+          doc(
+            db,
+            "admins",
+            authUid,
+          ),
+        );
+
+      const adminEmail =
+        String(
+          adminSnap.data()?.email ??
+            "",
+        )
+          .trim()
+          .toLowerCase();
+
+      if (
+        adminSnap.exists() &&
+        adminEmail ===
+          normalizedEmail
+      ) {
+        allMatches.push(
+          userFromFirestore(
+            adminSnap.id,
+            adminSnap.data(),
+          ),
+        );
+      }
+    } catch (error) {
+      /*
+       * The self-read rule denies admins/{uid} for every
+       * account that is not an admin, so a permission error
+       * here is the expected answer rather than a fault.
+       */
+      console.debug(
+        `findAccountByEmailStrict: admins/${authUid} is not readable:`,
+        error,
       );
     }
   }
@@ -545,6 +608,8 @@ async function createGoogleAccount(
     existing =
       await findAccountByEmailStrict(
         email,
+        undefined,
+        user.uid,
       );
   } catch (error) {
     console.error(
