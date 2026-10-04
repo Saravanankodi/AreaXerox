@@ -371,7 +371,7 @@ import Link from "next/link";
 export default function Footer() {
   
   return (
-    <footer className="relative border-t border-slate-800/80 bg-[#05070b] text-slate-400">
+    <footer className="hidden md:relative border-t border-slate-800/80 bg-[#05070b] text-slate-400">
       <div className="mx-auto max-w-375 px-6 sm:px-10 lg:px-14">
 
         {/* =========================================================

@@ -41,31 +41,9 @@ export function CustomerShell({
     to === "/" ? pathname === "/" : pathname === to || pathname.startsWith(to + "/");
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex max-h-screen flex-col bg-background">
       <header className="sticky top-0 z-40 border-b border-border bg-card/90 backdrop-blur">
         <div className="container-page flex h-16 items-center justify-between gap-4">
-          {/* <Link to="/" className="flex items-center gap-2">
-            {/* <span className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Printer className="h-5 w-5" />
-            </span>
-            <span className="text-[15px] font-bold tracking-tight">XEROXMATE</span> 
-
-          </Link> */}
-          {/* <Link to="/" className="flex items-center">
-            {/* Light theme logo *
-            <img
-              src="/logo-light-rbg.png"
-              alt="XEROXMATE"
-              className="h-16 dark:hidden"
-            />
-
-            {/* Dark theme logo *
-            <img
-              src="/logo-dark-rbg.png"
-              alt="XEROXMATE"
-              className="hidden h-16 dark:block"
-            />
-          </Link> */}
           <Link to="/" className="flex items-center">
             {/* Light theme logo */}
             <img
@@ -126,7 +104,7 @@ export function CustomerShell({
         </div>
       </header>
 
-      <main className="flex-1 pb-20 md:pb-0">{children}</main>
+      <main className="flex items-center justify-center pb-16 md:pb-0">{children}</main>
 
       {!hideFooter && (
         <footer className="mt-5 hidden border-t border-border bg-card md:block">

@@ -1052,7 +1052,7 @@ export interface Order {
   /**
    * Free-form instructions the customer typed for the shop.
    */
-  notes?: string;
+  notes?: string | null;
 
   price: PriceBreakdown;
 
