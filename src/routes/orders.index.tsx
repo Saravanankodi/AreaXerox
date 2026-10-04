@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { PaymentBadge, StatusBadge } from "@/components/StatusBadge";
-import { useRequireCustomer } from "@/lib/auth";
+import { OrderAuthGuard } from "@/components/auth/OrderAuthGuard";
 import { useStore } from "@/lib/store";
 import { inr } from "@/lib/pricing";
 import { fulfillmentLabel } from "@/lib/labels";
@@ -39,13 +39,22 @@ const TABS = ["Active", "Completed", "All"] as const;
 
 const CANCELLABLE_STATUSES = new Set(["NEW", "ACCEPTED"]);
 
+/**
+ * An order route is browsed before it is signed into, so a signed-out visitor
+ * is asked to login or register in place rather than redirected away.
+ */
 function OrdersPage() {
-  const allowed = useRequireCustomer();
+  return (
+    <OrderAuthGuard>
+      <OrdersIndex />
+    </OrderAuthGuard>
+  );
+}
+
+function OrdersIndex() {
   const { orders, cancelOrder } = useStore();
   const [tab, setTab] = useState<(typeof TABS)[number]>("Active");
   const [cancelTarget, setCancelTarget] = useState<Order | null>(null);
-
-  if (!allowed) return null;
 
   const done = ["COMPLETED", "DELIVERED", "REJECTED"];
   const list = orders.filter((o) =>

@@ -9,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "XEROXMATE — Order My Xerox",
+  title: "XEROXMATE",
   description: "Your digital printing partner. Upload, configure, and track print orders.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {

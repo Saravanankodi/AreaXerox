@@ -4,6 +4,7 @@ import { type ReactNode, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
+import { withNext } from "@/lib/return-path";
 import { ThemeSelector } from "@/components/ThemeSelector";
 import { NotificationBell } from "@/components/NotificationBell";
 
@@ -27,11 +28,12 @@ export function CustomerShell({
   const { session, signOut } = useAuth();
 
   // Customer access control: redirect incomplete registration back to register page.
-  // Since the register page now auto-completes and redirects to /, this rarely triggers.
+  // The current route rides along as ?next= so finishing the account returns the
+  // customer to the page they were on.
   useEffect(() => {
     if (!session || session.role !== "customer") return;
     if (session.registrationStatus === "incomplete" && pathname !== "/auth/customer/register") {
-      navigate({ to: "/auth/customer/register", replace: true });
+      navigate({ to: withNext("/auth/customer/register", pathname), replace: true });
     }
   }, [session, navigate, pathname]);
 

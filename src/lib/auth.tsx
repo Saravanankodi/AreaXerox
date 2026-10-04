@@ -1076,22 +1076,37 @@ if (!active) {
 return;
 }
 
-    /*
-     * Do not treat this first null event as an explicit logout.
-     *
-     * Firebase emits null while it restores persistence on load.
-     */
-    if (!user) {
-      if (!sawUserRef.current) {
+/*
+       * Firebase's first emission is the resolution of the initial auth state,
+       * not a logout: it is how the SDK reports "initialization finished, and
+       * nobody is signed in".
+       *
+       * It still must not be treated as a logout — `restore(null)` is the path
+       * that clears a session, and firing that before a user was ever seen would
+       * sign out a visitor who never signed in. But initialization *is* over,
+       * so `ready` has to flip here. Leaving it false meant a signed-out visitor
+       * never got a resolved auth state at all, and every gate that waits on
+       * `ready` — the order access gate in particular — waited forever instead
+       * of showing what it had to show.
+       */
+      if (!user) {
+        if (!sawUserRef.current) {
+          setReady(true);
+
+          return;
+        }
+
+        void restore(null);
+
         return;
       }
 
-      void restore(null);
-
-      return;
-    }
-
-    void restore(user);
+      /*
+       * A real user is not resolved yet: `restore` still has to load the account
+       * doc, and it flips `ready` in its `finally` once `session` is set. Setting
+       * it here would flash the signed-in branch before the session lands.
+       */
+      void restore(user);
   },
 );
 
@@ -1586,68 +1601,54 @@ export function useAuth() {
  * CUSTOMER ROUTE GUARD
  * ======================================================= */
 
-export const CUSTOMER_LOGIN_PATH =
-  "/auth/customer/login";
+export const CUSTOMER_LOGIN_PATH = "/auth/customer/login";
 
-
-/**
- * Gate a customer-only route.
- */
 export function useRequireCustomer(): boolean {
-  const {
-    session,
-    ready,
-  } = useAuth();
+  const { session, ready } = useAuth();
+  const navigate = useNavigate();
 
-  const navigate =
-    useNavigate();
-
-  const pathname =
-    useRouterState({
-      select: (state) =>
-        state.location.pathname,
-    });
-
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
 
   useEffect(() => {
     if (!ready) {
       return;
     }
 
-    if (
-      session?.role ===
-      "customer"
-    ) {
+    // Logged-in customer can continue.
+    if (session?.role === "customer") {
       return;
     }
 
-    if (
-      pathname ===
-      CUSTOMER_LOGIN_PATH
-    ) {
+    // Already on login page.
+    if (pathname === CUSTOMER_LOGIN_PATH) {
       return;
     }
 
-
-    navigate({
-      to:
-        `${CUSTOMER_LOGIN_PATH}?next=${encodeURIComponent(
+    // Protect order routes.
+    if (
+      pathname === "/order" ||
+      pathname.startsWith("/order/") ||
+      pathname === "/orders" ||
+      pathname.startsWith("/orders/")
+    ) {
+      navigate({
+        to: `${CUSTOMER_LOGIN_PATH}?next=${encodeURIComponent(
           pathname,
         )}`,
-
-      replace: true,
-    });
+        replace: true,
+      });
+    }
   }, [
-    session,
     ready,
+    session?.role,
     pathname,
     navigate,
   ]);
 
-
   return (
     ready &&
-    session?.role ===
-      "customer"
+    session?.role === "customer"
   );
 }

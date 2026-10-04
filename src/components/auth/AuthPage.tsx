@@ -11,6 +11,11 @@ import { Label } from "@/components/ui/label";
 
 import { useAuth, healAccountIdentity } from "@/lib/auth";
 
+import {
+  sanitizeReturnPath,
+  withNext,
+} from "@/lib/return-path";
+
 import { useStore } from "@/lib/store";
 
 import { signInWithEmailAndPassword } from "firebase/auth";
@@ -56,21 +61,6 @@ export function AuthPageRoute({
   );
 }
 
-/**
- * Only a same-origin absolute path may be used as a post-login destination.
- * Rejects protocol-relative (`//evil.com`) and backslash (`/\evil.com`) forms,
- * which browsers resolve as a different origin.
- */
-function sanitizeReturnPath(
-  value: string | null,
-): string | null {
-  if (!value) return null;
-  if (!value.startsWith("/")) return null;
-  if (value.startsWith("//")) return null;
-  if (value.startsWith("/\\")) return null;
-  return value;
-}
-
 export function AuthPage({
   role,
   mode,
@@ -81,8 +71,8 @@ export function AuthPage({
   const navigate = useNavigate();
 
   /*
-   * Set by `useRequireCustomer` when a signed-out visitor is turned away from
-   * a customer-only route, so they resume where they were headed.
+   * Set by an access gate — `useRequireCustomer` when it redirects, or the order
+   * gate when it asks in place — so they resume where they were headed.
    */
   const searchParams = useSearchParams();
   const returnPath = sanitizeReturnPath(
@@ -97,21 +87,44 @@ export function AuthPage({
     ready,
   } = useAuth();
 
-  /*
+/*
    * Sends an already signed-in visitor where they belong.
    *
-   * `useRequireCustomer` sets `?next=` when a signed-out visitor is turned away
-   * from a customer-only route, so they resume where they were headed. This also
-   * covers Google sign-in, which resolves in a popup and leaves this page
-   * mounted, so the session arrives here rather than on a fresh load.
+   * An access gate sets `?next=` when a signed-out visitor is turned away from a
+   * customer-only route, so they resume where they were headed. This also covers
+   * Google sign-in, which resolves in a popup and leaves this page mounted, so
+   * the session arrives here rather than on a fresh load.
+   *
+   * A customer whose profile is still incomplete is routed through the
+   * registration hop instead of straight to `?next=`. Sending them onward would
+   * race the signup flow's own navigation and lose the return path: the register
+   * hop is the only place that finishes the account, and it honours `?next=`.
    */
   useEffect(() => {
     if (!ready || !session) return;
+
+    if (session.role === "shopkeeper") {
+      navigate({ to: "/shop", replace: true });
+      return;
+    }
+
+    if (
+      session.role === "customer" &&
+      session.registrationStatus === "incomplete"
+    ) {
+      navigate({
+        to: withNext(
+          "/auth/customer/register",
+          returnPath,
+        ),
+        replace: true,
+      });
+
+      return;
+    }
+
     navigate({
-      to:
-        session.role === "shopkeeper"
-          ? "/shop"
-          : (returnPath ?? (session.role === "customer" ? "/" : "/")),
+      to: returnPath ?? "/",
       replace: true,
     });
   }, [session, ready, navigate, returnPath]);
@@ -128,17 +141,16 @@ export function AuthPage({
   const isShop = role === "shopkeeper";
   const isCreate = mode === "signup";
 
-  const alternate =
-    (isCreate
+  const alternate = withNext(
+    isCreate
       ? isShop
         ? "/auth/shop/login"
         : "/auth/customer/login"
       : isShop
         ? "/auth/shop/create-account"
-        : "/auth/customer/create-account") +
-    (returnPath
-      ? `?next=${encodeURIComponent(returnPath)}`
-      : "");
+        : "/auth/customer/create-account",
+    returnPath,
+  );
 
   /*
    * ==========================================
@@ -269,7 +281,12 @@ export function AuthPage({
           "Complete your profile to continue.",
         );
 
-        navigate({ to: "/auth/customer/register" });
+        navigate({
+          to: withNext(
+            "/auth/customer/register",
+            returnPath,
+          ),
+        });
 
         return;
       }
@@ -424,7 +441,10 @@ export function AuthPage({
           });
         } else {
           navigate({
-            to: "/auth/customer/register",
+            to: withNext(
+              "/auth/customer/register",
+              returnPath,
+            ),
           });
         }
 

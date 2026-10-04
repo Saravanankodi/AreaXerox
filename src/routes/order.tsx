@@ -35,7 +35,8 @@ import { cn } from "@/lib/utils";
 import { newOrderId, useStore } from "@/lib/store";
 import { auth } from "@/lib/firebase";
 import { openRazorpayCheckout } from "@/lib/razorpay/checkout";
-import { useAuth, useRequireCustomer } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
+import { OrderAuthGuard } from "@/components/auth/OrderAuthGuard";
 import { uploadFileToCloudinary } from "@/lib/cloudinary";
 import { calculateDocumentPrices, calculateOrderPrice, inr, paymentSplit } from "@/lib/pricing";
 import { detectPageCount } from "@/lib/document-pages";
@@ -83,6 +84,18 @@ export const Route = createFileRoute("/order")({
   }),
   component: OrderPage,
 });
+
+/**
+ * An order route is browsed before it is signed into, so a signed-out visitor
+ * is asked to login or register in place rather than redirected away.
+ */
+function OrderPage() {
+  return (
+    <OrderAuthGuard>
+      <OrderFlow />
+    </OrderAuthGuard>
+  );
+}
 
 const STEP_TITLES = [
   "Upload + specifications",
@@ -640,9 +653,8 @@ function paymentMethodAvailable(shop: Shop, fulfillment: Fulfillment, method: Pa
   return fulfillment === "delivery" && shop.payments.cashDelivery;
 }
 
-function OrderPage() {
+function OrderFlow() {
   const navigate = useNavigate();
-  const allowed = useRequireCustomer();
   const {
     shops,
     activeShop,
@@ -1262,8 +1274,6 @@ function OrderPage() {
       setSubmittingOrder(false);
     }
   };
-
-  if (!allowed) return null;
 
   return (
     <CustomerShell>

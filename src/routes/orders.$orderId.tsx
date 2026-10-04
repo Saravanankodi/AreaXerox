@@ -8,7 +8,7 @@ import { ReviewCard } from "@/components/ReviewCard";
 import { PaymentBadge, StatusBadge } from "@/components/StatusBadge";
 import { OnlinePaymentState } from "@/components/OnlinePaymentState";
 import { PayNowCard } from "@/components/PayNowCard";
-import { useRequireCustomer } from "@/lib/auth";
+import { OrderAuthGuard } from "@/components/auth/OrderAuthGuard";
 import { useStore } from "@/lib/store";
 import { calculateDocumentPrices, inr } from "@/lib/pricing";
 import { customerStatusCopy, fulfillmentLabel } from "@/lib/labels";
@@ -31,12 +31,21 @@ export const Route = createFileRoute("/orders/$orderId")({
   component: OrderDetail,
 });
 
+/**
+ * An order route is browsed before it is signed into, so a signed-out visitor
+ * is asked to login or register in place rather than redirected away.
+ */
 function OrderDetail() {
-  const allowed = useRequireCustomer();
+  return (
+    <OrderAuthGuard>
+      <OrderDetailContent />
+    </OrderAuthGuard>
+  );
+}
+
+function OrderDetailContent() {
   const { orderId } = Route.useParams();
   const { orders, shops, hydrated, getCachedFile } = useStore();
-
-  if (!allowed) return null;
 
   const order = orders.find((o) => o.id === orderId);
 
