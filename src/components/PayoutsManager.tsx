@@ -21,10 +21,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  fetchCashfreeOnboardingStatus,
-  startCashfreeOnboarding,
-} from "@/services/cashfree.service";
-import {
   fetchRazorpayCategories,
   fetchRazorpayOnboardingStatus,
   startRazorpayOnboarding,
@@ -90,29 +86,28 @@ function buildInitialForm(shop: Shop) {
 }
 
 export function PayoutsManager({ shop }: { shop: Shop }) {
-  const activeGateway = (
-    process.env.NEXT_PUBLIC_PAYMENT_GATEWAY ?? "cashfree"
-  ).toLowerCase();
-
   const [categories, setCategories] = useState<CategoryOption[]>(RAZORPAY_CATEGORIES);
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Status calculation for active gateway
-  const status =
-    activeGateway === "cashfree"
-      ? (shop.cashfreeOnboardingStatus ?? (shop.payoutEnabled ? "activated" : "not_started"))
-      : ((shop.razorpayOnboardingStatus ?? "not_started") as RazorpayOnboardingStatus);
+  const status = (shop.razorpayOnboardingStatus ??
+    "not_started") as RazorpayOnboardingStatus;
 
   const active = shop.payoutEnabled || status === "activated";
 
   useEffect(() => {
-    if (activeGateway === "razorpay") {
-      fetchRazorpayCategories()
-        .then((res) => setCategories(res.categories))
-        .catch(() => setCategories(RAZORPAY_CATEGORIES));
-    }
-  }, [activeGateway]);
+    let cancelled = false;
+    fetchRazorpayCategories()
+      .then((res) => {
+        if (!cancelled) setCategories(res.categories);
+      })
+      .catch(() => {
+        if (!cancelled) setCategories(RAZORPAY_CATEGORIES);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [form, setForm] = useState<PayoutForm>(() => buildInitialForm(shop));
 
@@ -123,21 +118,12 @@ export function PayoutsManager({ shop }: { shop: Shop }) {
     if (refreshing) return;
     setRefreshing(true);
     try {
-      if (activeGateway === "cashfree") {
-        const result = await fetchCashfreeOnboardingStatus(shop.id);
-        toast.success(
-          result.payoutEnabled
-            ? "Cashfree Easy Split payouts are active."
-            : `Status refreshed: ${STATUS_COPY[result.onboardingStatus] || result.onboardingStatus}`
-        );
-      } else {
-        const result = await fetchRazorpayOnboardingStatus(shop.id);
-        toast.success(
-          result.onboardingStatus === "activated"
-            ? "Payouts are active."
-            : `Status refreshed: ${STATUS_COPY[result.onboardingStatus]}`
-        );
-      }
+      const result = await fetchRazorpayOnboardingStatus(shop.id);
+      toast.success(
+        result.onboardingStatus === "activated"
+          ? "Payouts are active."
+          : `Status refreshed: ${STATUS_COPY[result.onboardingStatus]}`
+      );
     } catch (error) {
       toast.error((error as Error).message || "Could not refresh payout status.");
     } finally {
@@ -147,6 +133,36 @@ export function PayoutsManager({ shop }: { shop: Shop }) {
 
   const handleSubmit = async () => {
     if (submitting) return;
+
+    const missingAddress = (
+      [
+        ["Address line 1", form.street1],
+        ["City", form.city],
+        ["State", form.state],
+        ["Postal code", form.postalCode],
+        ["Owner name", form.ownerName],
+      ] as const
+    )
+      .filter(([, v]) => !v.trim())
+      .map(([label]) => label);
+    if (missingAddress.length) {
+      toast.error(`Required for KYC: ${missingAddress.join(", ")}.`);
+      return;
+    }
+
+    if (!form.pan.trim() || !form.ownerPan.trim()) {
+      toast.error("Business PAN and owner PAN are required for Razorpay Route.");
+      return;
+    }
+    for (const [label, value] of [
+      ["Business PAN", form.pan],
+      ["Owner PAN", form.ownerPan],
+    ] as const) {
+      if (!PAN_PATTERN.test(value.trim().toUpperCase())) {
+        toast.error(`${label} must be in the format ABCDE1234F.`);
+        return;
+      }
+    }
 
     if (!form.accountNumber.trim() || !form.ifscCode.trim()) {
       toast.error("Settlement bank account number and IFSC code are required.");
@@ -165,55 +181,9 @@ export function PayoutsManager({ shop }: { shop: Shop }) {
       return;
     }
 
-    if (form.pan.trim() && !PAN_PATTERN.test(form.pan.trim().toUpperCase())) {
-      toast.error("PAN must be in the format ABCDE1234F.");
-      return;
-    }
-
-    /* -----------------------------------------------------
-     * CASHFREE EASY SPLIT ONBOARDING
-     * --------------------------------------------------- */
-    if (activeGateway === "cashfree") {
-      setSubmitting(true);
-      toast.loading("Setting up Cashfree Easy Split payouts…", { id: "payout-onboarding" });
-      try {
-        const res = await startCashfreeOnboarding({
-          shopId: shop.id,
-          email: form.email.trim(),
-          phone: form.phone.trim(),
-          contactName: form.contactName.trim() || shop.ownerName,
-          legalBusinessName: form.legalBusinessName.trim() || shop.name,
-          pan: form.pan.trim().toUpperCase() || undefined,
-          bankAccountNumber: form.accountNumber.trim(),
-          bankIfsc: form.ifscCode.trim().toUpperCase(),
-          accountHolder: form.beneficiaryName.trim() || form.contactName.trim() || shop.name,
-        });
-
-        toast.success(
-          res.payoutEnabled
-            ? "Cashfree Easy Split vendor account activated!"
-            : "Cashfree vendor submitted successfully.",
-          { id: "payout-onboarding" }
-        );
-      } catch (error) {
-        console.error("Cashfree onboarding error:", error);
-        toast.error((error as Error).message || "Payout setup failed. Please try again.", {
-          id: "payout-onboarding",
-        });
-      } finally {
-        setSubmitting(false);
-      }
-      return;
-    }
-
     /* -----------------------------------------------------
      * RAZORPAY ROUTE ONBOARDING
      * --------------------------------------------------- */
-    if (!form.pan || !form.ownerPan) {
-      toast.error("Business PAN and owner PAN are required for Razorpay Route.");
-      return;
-    }
-
     const payload: OnboardingStartPayload = {
       shopId: shop.id,
       email: form.email.trim(),
@@ -265,23 +235,21 @@ export function PayoutsManager({ shop }: { shop: Shop }) {
   };
 
   const selectedCategory = categories.find((c) => c.category === form.category);
+  const subcategoryOptions = selectedCategory?.subcategories ?? [];
 
   return (
     <div className="card-surface p-5 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="inline-flex items-center gap-2 text-base font-semibold">
-            <Wallet className="h-4 w-4 text-primary" />{" "}
-            {activeGateway === "cashfree" ? "Cashfree Easy Split Payouts" : "Razorpay Payouts"}
+            <Wallet className="h-4 w-4 text-primary" /> Razorpay Payouts
           </h2>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
             Receive your share of every online order as an automated transfer to your bank account.{" "}
-            {activeGateway === "cashfree"
-              ? "XEROXMATE uses Cashfree Easy Split vendor payouts for automated settlements."
-              : "XEROXMATE uses Razorpay Route linked accounts for KYC-compliant payouts."}
+            XEROXMATE uses Razorpay Route linked accounts for KYC-compliant payouts.
           </p>
         </div>
-        {(shop.cashfreeVendorId || shop.razorpayAccountId) && (
+        {shop.razorpayAccountId && (
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
             {refreshing ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -310,10 +278,7 @@ export function PayoutsManager({ shop }: { shop: Shop }) {
             {active ? "Payouts are active" : `Payout status: ${status.replace(/_/g, " ")}`}
           </p>
           <p className="mt-0.5 text-xs opacity-90">{STATUS_COPY[status] ?? STATUS_COPY.not_started}</p>
-          {shop.cashfreeVendorId && (
-            <p className="mt-1 font-mono text-xs opacity-80">Cashfree Vendor ID: {shop.cashfreeVendorId}</p>
-          )}
-          {shop.razorpayAccountId && !shop.cashfreeVendorId && (
+          {shop.razorpayAccountId && (
             <p className="mt-1 font-mono text-xs opacity-80">Linked account: {shop.razorpayAccountId}</p>
           )}
         </div>
@@ -327,8 +292,7 @@ export function PayoutsManager({ shop }: { shop: Shop }) {
             settlement needed.
           </p>
           <p>
-            Settlement bank detail verification is handled by{" "}
-            {activeGateway === "cashfree" ? "Cashfree Payments" : "Razorpay"}. If you change your bank details, submit the updated account below.
+            Settlement bank detail verification is handled by Razorpay. If you change your bank details, submit the updated account below.
           </p>
         </div>
       ) : (
@@ -350,41 +314,127 @@ export function PayoutsManager({ shop }: { shop: Shop }) {
                 <Input value={form.legalBusinessName} onChange={(e) => set("legalBusinessName")(e.target.value)} />
               </Field>
 
-              {activeGateway === "razorpay" && (
-                <>
-                  <Field label="Business type">
-                    <Select value={form.businessType} onValueChange={set("businessType")}>
-                      <SelectTrigger className="mt-1.5">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {BUSINESS_TYPES.map((t) => (
-                          <SelectItem key={t.value} value={t.value}>
-                            {t.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Category (as per Razorpay)">
-                    <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v, subcategory: "" }))}>
-                      <SelectTrigger className="mt-1.5">
-                        <SelectValue placeholder="Select category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {categories.map((c) => (
-                          <SelectItem key={c.category} value={c.category}>
-                            {c.category}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </>
-              )}
+              <Field label="Business type">
+                <Select value={form.businessType} onValueChange={set("businessType")}>
+                  <SelectTrigger className="mt-1.5">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BUSINESS_TYPES.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        {t.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Category (as per Razorpay)">
+                <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v, subcategory: "" }))}>
+                  <SelectTrigger className="mt-1.5">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map((c) => (
+                      <SelectItem key={c.category} value={c.category}>
+                        {c.category}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
 
-              <Field label="Business PAN (optional)">
+              <Field label="Subcategory (as per Razorpay)">
+                <Select
+                  value={form.subcategory}
+                  onValueChange={set("subcategory")}
+                >
+                  <SelectTrigger className="mt-1.5">
+                    <SelectValue placeholder="Select subcategory" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(subcategoryOptions.length
+                      ? subcategoryOptions
+                      : [form.subcategory]
+                    ).map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field label="Business PAN (required)">
                 <Input value={form.pan} onChange={(e) => set("pan")(e.target.value)} placeholder="ABCDE1234F" />
+              </Field>
+              <Field label="GSTIN (optional)">
+                <Input value={form.gst} onChange={(e) => set("gst")(e.target.value)} placeholder="22AAAAA0000A1Z5" />
+              </Field>
+              <Field label="Customer-facing business name">
+                <Input
+                  value={form.customerFacingBusinessName}
+                  onChange={(e) => set("customerFacingBusinessName")(e.target.value)}
+                />
+              </Field>
+            </div>
+          </section>
+
+          {/* BUSINESS ADDRESS */}
+          <section>
+            <h3 className="text-sm font-semibold text-foreground">Registered business address</h3>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <Field label="Address line 1">
+                  <Input value={form.street1} onChange={(e) => set("street1")(e.target.value)} />
+                </Field>
+              </div>
+              <div className="sm:col-span-2">
+                <Field label="Address line 2 (optional)">
+                  <Input value={form.street2} onChange={(e) => set("street2")(e.target.value)} />
+                </Field>
+              </div>
+              <Field label="City">
+                <Input value={form.city} onChange={(e) => set("city")(e.target.value)} />
+              </Field>
+              <Field label="State">
+                <Input value={form.state} onChange={(e) => set("state")(e.target.value)} />
+              </Field>
+              <Field label="Postal code">
+                <Input
+                  value={form.postalCode}
+                  onChange={(e) => set("postalCode")(e.target.value)}
+                  inputMode="numeric"
+                />
+              </Field>
+            </div>
+          </section>
+
+          {/* OWNER KYC */}
+          <section>
+            <h3 className="text-sm font-semibold text-foreground">Owner (KYC) details</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Razorpay verifies the owner against these details. They must match your PAN and bank records.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <Field label="Owner name">
+                <Input value={form.ownerName} onChange={(e) => set("ownerName")(e.target.value)} />
+              </Field>
+              <Field label="Owner PAN (required)">
+                <Input
+                  value={form.ownerPan}
+                  onChange={(e) => set("ownerPan")(e.target.value)}
+                  placeholder="ABCDE1234F"
+                />
+              </Field>
+              <Field label="Owner email">
+                <Input
+                  type="email"
+                  value={form.ownerEmail}
+                  onChange={(e) => set("ownerEmail")(e.target.value)}
+                />
+              </Field>
+              <Field label="Owner phone (optional)">
+                <Input value={form.ownerPhone} onChange={(e) => set("ownerPhone")(e.target.value)} />
               </Field>
             </div>
           </section>
@@ -414,7 +464,7 @@ export function PayoutsManager({ shop }: { shop: Shop }) {
             {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
             {submitting
               ? "Submitting onboarding…"
-              : shop.cashfreeVendorId || shop.razorpayAccountId
+              : shop.razorpayAccountId
                 ? "Update payout details"
                 : "Set up automated payouts"}
           </Button>

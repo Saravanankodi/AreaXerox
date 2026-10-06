@@ -104,7 +104,7 @@ export function CustomerShell({
         </div>
       </header>
 
-      <main className="flex items-center justify-center pb-16 md:pb-0">{children}</main>
+      <main className="flex flex-col items-center justify-center pb-16 md:pb-0">{children}</main>
 
       {!hideFooter && (
         <footer className="mt-5 hidden border-t border-border bg-card md:block">

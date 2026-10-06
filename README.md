@@ -22,7 +22,7 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 ## Razorpay setup (online payments + automated payouts)
 
-XEROXMATE collects customer payments through [Razorpay Checkout](https://razorpay.com/docs/checkout/) and pays the shopkeeper's share using **Route linked accounts** (automated transfers). The flow is:
+XEROXMATE collects customer payments through [Razorpay Checkout](https://razorpay.com/docs/checkout/) and pays the shopkeeper's share using **Route linked accounts** (automated transfers). Razorpay is the only payment gateway. The flow is:
 
 1. Shopkeepers enable payouts in **Shop → Settings → Razorpay Payouts**.
 2. On submit, the server creates a linked account + stakeholder + `route` product configuration on Razorpay, records the ids on the shop document, and tracks KYC activation.

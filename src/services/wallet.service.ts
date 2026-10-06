@@ -107,12 +107,42 @@ export function collectOrderPayment(input: {
   orderId: string;
   amount: number;
   via: PaymentCollectedVia;
-}): Promise<{ order: Order; credited: number; summary: WalletSummary; alreadyCollected: boolean }> {
+}): Promise<{
+  order: Order;
+  credited: number;
+  summary: WalletSummary;
+  alreadyCollected: boolean;
+}> {
   return apiFetch("/api/orders/collect", {
     method: "POST",
-    body: { orderId: input.orderId, amount: input.amount, via: input.via },
+    body: {
+      orderId: input.orderId,
+      amount: input.amount,
+      via: input.via,
+    },
   });
 }
+
+/**
+ * Completes an order and credits the shopkeeper wallet.
+ *
+ * This must go through the server because completing an order
+ * and crediting the wallet must happen in one trusted transaction.
+ */
+export function completeOrder(
+  orderId: string,
+): Promise<{
+  order: Order;
+  credited: number;
+  summary: WalletSummary;
+  alreadyCredited: boolean;
+}> {
+  return apiFetch("/api/orders/complete", {
+    method: "POST",
+    body: { orderId },
+  });
+}
+
 
 /* =========================================================
  * ADMIN

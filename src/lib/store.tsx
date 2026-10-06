@@ -47,7 +47,7 @@ import {
   markNotificationReadRemote,
 } from "@/services/notifications.service";
 import { useAuth } from "@/lib/auth";
-import { collectOrderPayment as collectOrderPaymentApi } from "@/services/wallet.service";
+import { collectOrderPayment as collectOrderPaymentApi, completeOrder } from "@/services/wallet.service";
 import { nextStatus, orderStatusLabel } from "@/lib/labels";
 import {
   getShopkeeperApplication as fetchShopkeeperApplication,
@@ -480,18 +480,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const advanceOrder = useCallback(
-    async (orderId: string, status: OrderStatus): Promise<void> => {
-      const order = state.orders.find((o) => o.id === orderId);
-      if (!order) throw new Error(`Order ${orderId} not found.`);
+    async (
+      orderId: string,
+      status: OrderStatus,
+    ): Promise<void> => {
+      const order = state.orders.find(
+        (o) => o.id === orderId,
+      );
+
+      if (!order) {
+        throw new Error(
+          `Order ${orderId} not found.`,
+        );
+      }
 
       if (status === "REJECTED") {
-        if (order.status !== "NEW" && order.status !== "ACCEPTED") {
+        if (
+          order.status !== "NEW" &&
+          order.status !== "ACCEPTED"
+        ) {
           throw new Error(
-            `An order ${orderStatusLabel[order.status].toLowerCase()} can no longer be rejected.`,
+            `An order ${orderStatusLabel[
+              order.status
+            ].toLowerCase()} can no longer be rejected.`,
           );
         }
       } else {
-        const expected = nextStatus(order.status, order.fulfillment);
+        const expected = nextStatus(
+          order.status,
+          order.fulfillment,
+        );
+
         if (status !== expected) {
           throw new Error(
             expected
@@ -501,10 +520,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      await updateOrderStatusInFirestore(orderId, status);
+      /*
+      * COMPLETED is special.
+      *
+      * It must go through the server because completing
+      * the order also credits the shopkeeper wallet.
+      */
+      if (status === "COMPLETED") {
+        await completeOrder(orderId);
+        return;
+      }
+
+      /*
+      * All other status transitions remain normal.
+      */
+      await updateOrderStatusInFirestore(
+        orderId,
+        status,
+      );
     },
     [state.orders],
   );
+
 
 /**
    * Collects whatever is outstanding on an order.

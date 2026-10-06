@@ -37,16 +37,6 @@ function isOrderRazorpayDataInvariant() {
     && isFieldInvariant("razorpayPayoutStatus");
 }
 
-// Cashfree-owned fields on Orders. Same reasoning as the Razorpay block: every
-// writer is an API route or webhook using the Admin SDK, so no client code path
-// needs write access to them.
-function isOrderCashfreeDataInvariant() {
-  return isFieldInvariant("cashfreeOrderId")
-    && isFieldInvariant("cashfreePaymentId")
-    && isFieldInvariant("cashfreePaymentSessionId")
-    && isFieldInvariant("paymentGateway");
-}
-
 // Financial fields on Orders. Once an order exists, these belong to the server.
 //
 //   amountPaid / balance / paymentStatus
@@ -194,9 +184,6 @@ match /orders/{orderId} {
     && !("razorpayPaymentId" in request.resource.data)
     && !("razorpaySignature" in request.resource.data)
     && !("settlementStatus" in request.resource.data)
-    && !("cashfreeOrderId" in request.resource.data)
-    && !("cashfreePaymentId" in request.resource.data)
-    && !("cashfreePaymentSessionId" in request.resource.data)
     && !("paymentGateway" in request.resource.data);
 
   // Status transitions (shopkeeper advancing, customer cancelling) and the
@@ -204,7 +191,6 @@ match /orders/{orderId} {
   // none of them touch a financial or gateway field.
   allow update: if isAuthenticated()
     && isOrderRazorpayDataInvariant()
-    && isOrderCashfreeDataInvariant()
     && isOrderFinancialDataInvariant();
 
   allow delete: if false;

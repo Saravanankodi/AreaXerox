@@ -112,9 +112,68 @@ export type WithdrawalStatus =
   | "pending"
   | "approved"
   | "rejected"
-  | "paid";
+  | "paid"
+  | "cancelled";
 
-export type WithdrawalMethod = "bank" | "upi";
+export type WithdrawalMethod =
+  | "bank"
+  | "upi";
+
+export interface WithdrawalDestination {
+  accountNumber?: string;
+  ifsc?: string;
+  beneficiaryName?: string;
+  upiId?: string;
+}
+
+export interface Withdrawal {
+  id: string;
+
+  shopId: string;
+
+  ownerAccountId: string;
+
+  amount: number;
+
+  status: WithdrawalStatus;
+
+  method: WithdrawalMethod;
+
+  /**
+   * Snapshot of the payout destination at request time.
+   */
+  destination: WithdrawalDestination;
+
+  note?: string;
+
+  requestedAt: string;
+
+  decidedAt?: string;
+
+  decidedBy?: string;
+
+  decisionNote?: string;
+
+  /**
+   * Reference entered after the withdrawal is actually paid.
+   */
+  payoutReference?: string;
+
+  /**
+   * Timestamp when the withdrawal was paid.
+   */
+  paidAt?: string;
+
+  /**
+   * Timestamp when the shopkeeper cancelled the request.
+   */
+  cancelledAt?: string;
+
+  /**
+   * Optional reason supplied when cancelling.
+   */
+  cancellationReason?: string;
+}
 
 export type WalletEntryKind = "credit" | "debit";
 
@@ -180,49 +239,6 @@ export interface WalletEntry {
   note?: string;
 
   createdAt: string;
-}
-
-export interface WithdrawalDestination {
-  accountNumber?: string;
-  ifsc?: string;
-  beneficiaryName?: string;
-  upiId?: string;
-}
-
-export interface Withdrawal {
-  id: string;
-
-  shopId: string;
-
-  ownerAccountId: string;
-
-  amount: number;
-
-  status: WithdrawalStatus;
-
-  method: WithdrawalMethod;
-
-  /**
-   * Snapshot of the payout destination at request time, so a later
-   * profile edit cannot retroactively change what was asked for.
-   */
-  destination: WithdrawalDestination;
-
-  /**
-   * Optional note supplied by the shopkeeper when requesting.
-   */
-  note?: string;
-
-  requestedAt: string;
-
-  decidedAt?: string;
-
-  decidedBy?: string;
-
-  /**
-   * Admin's note. Distinct from `note`.
-   */
-  decisionNote?: string;
 }
 
 
@@ -722,16 +738,6 @@ export interface Shop {
    */
   razorpayRequirements?: RazorpayRequirement[];
 
-  /**
-   * Cashfree Easy Split Vendor ID for automated shopkeeper payouts.
-   */
-  cashfreeVendorId?: string;
-
-  /**
-   * Cashfree vendor onboarding status.
-   */
-  cashfreeOnboardingStatus?: "not_started" | "processing" | "activated" | "failed";
-
   frontImage?: string;
 
   interiorImage?: string;
@@ -970,24 +976,9 @@ export interface OrderPayment {
   razorpayPayoutStatus?: RazorpayPayoutStatus;
 
   /**
-   * Cashfree Order ID created for this order's online payment.
-   */
-  cashfreeOrderId?: string;
-
-  /**
-   * Cashfree Payment ID returned after payment completion.
-   */
-  cashfreePaymentId?: string;
-
-  /**
-   * Cashfree Payment Session ID.
-   */
-  cashfreePaymentSessionId?: string;
-
-  /**
    * Payment gateway used for processing payment.
    */
-  paymentGateway?: "razorpay" | "cashfree";
+  paymentGateway?: "razorpay";
 }
 
 
@@ -1102,24 +1093,9 @@ export interface Order {
   razorpayPayoutStatus?: RazorpayPayoutStatus;
 
   /**
-   * Cashfree Order ID created for this order's online payment.
-   */
-  cashfreeOrderId?: string;
-
-  /**
-   * Cashfree Payment ID returned after payment completion.
-   */
-  cashfreePaymentId?: string;
-
-  /**
-   * Cashfree Payment Session ID.
-   */
-  cashfreePaymentSessionId?: string;
-
-  /**
    * Payment gateway used for processing payment.
    */
-  paymentGateway?: "razorpay" | "cashfree";
+  paymentGateway?: "razorpay";
 
   status: OrderStatus;
 

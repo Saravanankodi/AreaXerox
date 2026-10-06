@@ -261,9 +261,9 @@ function FilePrintOptions({
               {catalog.paperTypes.map((paper) => (
                 <option key={paper.id} value={paper.id}>
                   {paper.name}
-                  {paperRate(paper, config.printType) > 0
+                  {/* {paperRate(paper, config.printType) > 0
                     ? ` · from ${inr(paperRate(paper, config.printType))}`
-                    : ""}
+                    : ""} */}
                 </option>
               ))}
             </SelectControl>

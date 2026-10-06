@@ -3,7 +3,7 @@ import { BadgeCheck, Clock, Sparkles } from "lucide-react";
 import type { Order } from "@/types";
 
 /**
- * Renders the online capture state for an order (Cashfree / Razorpay).
+ * Renders the online capture state for an order (Razorpay).
  * Shows nothing for cash pickup/delivery.
  */
 export function OnlinePaymentState({
@@ -17,13 +17,11 @@ export function OnlinePaymentState({
   if (!capable) return null;
 
   const captured =
-    !!order.cashfreePaymentId ||
     !!order.razorpayPaymentId ||
     !!order.razorpaySignature ||
     order.paymentStatus === "paid";
 
-  const inFlight =
-    (!!order.cashfreeOrderId || !!order.razorpayOrderId) && !captured;
+  const inFlight = !!order.razorpayOrderId && !captured;
 
   const base = "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium";
   const outer = className ? `${base} ${className}` : base;

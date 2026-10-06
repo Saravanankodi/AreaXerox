@@ -4,15 +4,13 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
-import { openCashfreeCheckout } from "@/lib/cashfree/checkout";
 import { useNavigate } from "@/lib/navigation";
 import { inr } from "@/lib/pricing";
 import { openRazorpayCheckout } from "@/lib/razorpay/checkout";
 import {
-  createUnifiedCheckoutSession,
-  verifyCashfreeCheckoutPayment,
-  verifyRazorpayCheckoutPayment,
-} from "@/services/payment.service";
+  createCheckoutSession,
+  verifyCheckoutPayment,
+} from "@/services/razorpay.service";
 import type { Order } from "@/types";
 
 /**
@@ -28,7 +26,6 @@ export function PayNowCard({ order }: { order: Order }) {
   const onlineCapable =
     order.paymentMethod === "full" || order.paymentMethod === "advance";
   const captured =
-    !!order.cashfreePaymentId ||
     !!order.razorpayPaymentId ||
     !!order.razorpaySignature ||
     order.paymentStatus === "paid";
@@ -43,73 +40,30 @@ export function PayNowCard({ order }: { order: Order }) {
     setBusy(true);
 
     try {
-      const sessionData = await createUnifiedCheckoutSession(order.id);
+      const checkout = await createCheckoutSession(order.id);
 
-      if (sessionData.paid) {
+      if (checkout.paid) {
         toast.success("This order was already paid.");
         navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
         return;
       }
 
-      /* -----------------------------------------------------
-       * CASHFREE CHECKOUT FLOW
-       * --------------------------------------------------- */
-      if (sessionData.gateway === "cashfree") {
-        if (!sessionData.paymentSessionId || !sessionData.cashfreeOrderId) {
-          throw new Error("Could not start a Cashfree payment session.");
-        }
-
-        const res = await openCashfreeCheckout({
-          paymentSessionId: sessionData.paymentSessionId,
-          environment: sessionData.environment || "sandbox",
-          redirectTarget: "_modal",
-        });
-
-        if (res?.error) {
-          console.warn("Cashfree checkout popup error/dismiss:", res.error);
-        }
-
-        // Verify payment server-side with Cashfree API regardless of browser signal
-        try {
-          await verifyCashfreeCheckoutPayment({
-            orderId: order.id,
-            cashfreeOrderId: sessionData.cashfreeOrderId,
-          });
-          toast.success("Payment received. Thank you!");
-          navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
-        } catch (error) {
-          const errMessage = (error as Error).message || "";
-          if (errMessage.includes("not completed")) {
-            toast.info("Payment was cancelled or is pending.");
-          } else {
-            console.error("Cashfree verification error:", error);
-            toast.error(errMessage || "Payment verification pending.");
-          }
-        } finally {
-          setBusy(false);
-        }
-        return;
-      }
-
-      /* -----------------------------------------------------
-       * RAZORPAY CHECKOUT FLOW (FALLBACK / HISTORICAL)
-       * --------------------------------------------------- */
-      if (!sessionData.key_id || !sessionData.razorpayOrderId) {
+      if (!checkout.key_id || !checkout.razorpayOrderId) {
         throw new Error("Could not start a Razorpay payment session.");
       }
 
       await openRazorpayCheckout({
-        key: sessionData.key_id,
-        amount: Math.round(sessionData.amount * 100),
-        currency: sessionData.currency || "INR",
-        name: sessionData.name || order.shopName,
-        description: sessionData.description || `Order ${order.id}`,
-        order_id: sessionData.razorpayOrderId,
-        prefill: sessionData.prefill,
+        key: checkout.key_id,
+        amount: checkout.amountPaise,
+        currency: checkout.currency || "INR",
+        name: checkout.name || order.shopName,
+        description: checkout.description || `Order ${order.id}`,
+        order_id: checkout.razorpayOrderId,
+        prefill: checkout.prefill,
         theme: { color: "#2f6f4f" },
         handler: async (response) => {
           try {
-            await verifyRazorpayCheckoutPayment({
+            await verifyCheckoutPayment({
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
