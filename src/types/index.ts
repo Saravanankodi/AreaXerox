@@ -112,8 +112,7 @@ export type WithdrawalStatus =
   | "pending"
   | "approved"
   | "rejected"
-  | "paid"
-  | "cancelled";
+  | "paid";
 
 export type WithdrawalMethod =
   | "bank"
