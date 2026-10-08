@@ -138,7 +138,7 @@ function Index() {
           {/* <HowItWorks /> */}
 
           {/* Interactive Print Estimator & Shop Comparison */}
-          <InteractiveSimulator />
+          {/* <InteractiveSimulator /> */}
 
           {/* Key Features Bento */}
           {/* <FeatureBento /> */}

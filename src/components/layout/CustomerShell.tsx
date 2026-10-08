@@ -79,7 +79,7 @@ export function CustomerShell({
 
           <div className="flex items-center gap-2">
             <NotificationBell />
-            <ThemeSelector compact />
+            {/* <ThemeSelector compact /> */}
             <Link
               to={session?.role === "shopkeeper" ? "/shop" : "/auth/shop/login"}
               className="hidden md:block"
@@ -91,12 +91,12 @@ export function CustomerShell({
             {session?.role === "customer" ? (
               <button
                 onClick={signOut}
-                className="hidden items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground hover:bg-secondary sm:inline-flex"
+                className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground hover:bg-secondary sm:inline-flex"
               >
-                <LogOut className="h-4 w-4" /> Sign out
+                <LogOut className="h-4 w-4" /> <span className="hidden sm:block">Sign out</span>
               </button>
             ) : (
-              <Link to="/auth/customer/login" className="hidden sm:block">
+              <Link to="/auth/customer/login" className="block">
                 <Button size="sm">Sign in</Button>
               </Link>
             )}

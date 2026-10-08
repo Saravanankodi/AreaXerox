@@ -18,7 +18,7 @@ export function OrderTimeline({
 
   return (
     <div className="overflow-x-auto pb-2">
-      <div className="flex min-w-[480px] items-start gap-0 ">
+      <div className="flex sm:min-w-120 items-start gap-0 ">
         {flow.map((s, i) => {
           const entry = timeline.find((t) => t.status === s);
           const isDone = reached(s) && i < currentIndex;

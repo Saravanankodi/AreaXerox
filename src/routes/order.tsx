@@ -153,7 +153,7 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="md:card-surface p-5 md:px-6 md:py-4">
+    <div className="md:card-surface md:px-6 md:py-4">
       <h2 className="text-base font-semibold">{title}</h2>
       {hint && <p className="mt-1 text-sm text-muted-foreground">{hint}</p>}
       <div className="mt-5">{children}</div>
@@ -392,7 +392,7 @@ function FilePrintOptions({
               </div>
               <div>
                 <Label className="text-xs font-semibold text-subtle">
-                  SPECIAL INSTRUCTIONS (OPTIONAL)
+                  INSTRUCTIONS (OPTIONAL)
                 </Label>
                 <Input
                   className="mt-1.5 h-9 text-xs"
@@ -449,7 +449,6 @@ function ShopSummaryPanel({
   availability,
   docs,
   config,
-  fulfillment,
   onContinue,
 }: {
   shop: Shop;
@@ -1238,7 +1237,7 @@ function OrderFlow() {
         },
         fulfillment,
         address: fulfillment === "delivery" ? address : null,
-        notes: notes.trim() || undefined,
+        notes: notes.trim() || '',
         price,
         paymentMethod: method,
         amountPaid: split.paidNow,
@@ -1546,7 +1545,7 @@ function OrderFlow() {
                     style={{ height: "min(calc(100vh - 320px), 335px)" }}
                   >
                     {/* 3 dots — represent card position inside current set */}
-                    <div className="relative flex w-5 shrink-0 flex-col items-center justify-center">
+                    <div className="hidden relative sm:flex w-5 shrink-0 flex-col items-center justify-center">
                       <div className="flex flex-col items-center gap-2">
                         {[0, 1, 2].map((dotIdx) => {
                           const isActive = dotIdx === activeCardIndex;
