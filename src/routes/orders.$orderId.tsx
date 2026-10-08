@@ -127,7 +127,7 @@ function OrderDetailContent() {
 
         <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_340px]">
           <div className="space-y-6">
-            <div className="card-surface p-5 md:p-6">
+            <div className="sm:card-surface sm:p-5 md:p-6">
               <h2 className="text-base font-semibold">Order timeline</h2>
               <div className="mt-5">
                 <OrderTimeline

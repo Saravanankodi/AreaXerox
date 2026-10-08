@@ -17,7 +17,7 @@ export function OrderTimeline({
   const reached = (s: string) => timeline.some((t) => t.status === s);
 
   return (
-    <div className="overflow-x-auto pb-2">
+    <div className="overflow-x-auto max-w-screen p-2">
       <div className="flex sm:min-w-120 items-start gap-0 ">
         {flow.map((s, i) => {
           const entry = timeline.find((t) => t.status === s);

@@ -252,7 +252,7 @@ function FilePrintOptions({
       </div>
       <div className="order-doc-card-details">
         <div className="order-doc-card-details-inner">
-          <div className="grid grid-cols-1 gap-3 p-4 min-[420px]:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 p-4 min-[420px]:grid-cols-2">
             <SelectControl
               label="Paper type"
               value={config.paperTypeId}
