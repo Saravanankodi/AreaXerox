@@ -1,29 +1,3 @@
-/**
- * Server-owned shopkeeper wallet.
- *
- * Every document under `wallets/{shopId}` is written exclusively through this
- * module using the Admin SDK. The browser never reads or writes these paths
- * directly — `firestore.rules` denies them outright — so the ledger can only
- * change when the server accepts an operation that passed an authorization and
- * validation check here.
- *
- * What credits a wallet:
- *   - cash / UPI / card the shopkeeper physically collected for an order, via
- *     `creditFromOrderCollection`
- *
- * What does NOT credit a wallet:
- *   - online gateway payments. Those auto-split straight to the linked bank
- *     account through Razorpay Route `order_splits` and never touch this ledger.
- *
- * Balances are stored as counters rather than derived by aggregating entries:
- * `totalEarned` and `withdrawn` are lifetime sums, and `pendingRequested` is a
- * maintained sum of in-flight withdrawals. `availableBalance` is always derived
- * as `totalEarned - pendingRequested` and is never stored, so it cannot drift.
- *
- * Firestore transaction rule observed throughout: every read happens before
- * every write, and each document is written exactly once per transaction.
- */
-
 import type { Transaction } from "firebase-admin/firestore";
 
 import { getAdminFirestore } from "@/lib/firebase/admin";
@@ -44,6 +18,17 @@ import type {
 export const DEFAULT_MIN_WITHDRAWAL = 100;
 
 const ENTRIES_PAGE_SIZE = 50;
+
+/**
+ * Statuses that reserve wallet balance. Everything else is terminal and has
+ * released the reservation (or, for `paid`, converted it into `withdrawn`).
+ */
+const IN_FLIGHT: WithdrawalStatus[] = [
+  "pending",
+  "under_review",
+  "approved",
+  "processing",
+];
 
 /**
  * An expected, reportable failure.
@@ -330,7 +315,11 @@ function toSummary(doc: WalletDoc): WalletSummary {
 
     availableBalance: Math.max(
       0,
-      money(doc.totalEarned - doc.pendingRequested),
+      money(
+        doc.totalEarned -
+          doc.pendingRequested -
+          doc.withdrawn,
+      ),
     ),
 
     withdrawn: doc.withdrawn,
@@ -784,7 +773,8 @@ export async function createWithdrawal(
         0,
         money(
           current.totalEarned -
-            current.pendingRequested,
+            current.pendingRequested -
+            current.withdrawn,
         ),
       );
 
@@ -793,6 +783,24 @@ export async function createWithdrawal(
         `Available balance is ₹${available}. You need ₹${money(
           amount - available,
         )} more.`,
+      );
+    }
+
+    /*
+     * Only one in-flight request per wallet. Without this guard the amount is
+     * reserved twice while the wallet counter (and the admin view) assumes a
+     * single reservation.
+     */
+    const openSnap = await tx.get(
+      walletRef
+        .collection("withdrawals")
+        .where("status", "in", IN_FLIGHT),
+    );
+
+    if (!openSnap.empty) {
+      throw new WalletError(
+        "You already have a withdrawal in progress.",
+        409,
       );
     }
 
@@ -824,6 +832,15 @@ export async function createWithdrawal(
         : {}),
 
       requestedAt: timestamp,
+
+      timeline: [
+        {
+          status: "pending",
+          at: timestamp,
+          by: uid,
+          note: "Requested by shopkeeper.",
+        },
+      ],
     };
 
     const next: WalletDoc = {
@@ -890,6 +907,7 @@ export async function cancelWithdrawal(
     shopId: string;
     withdrawalId: string;
     uid: string;
+    reason?: unknown;
   },
 ): Promise<{
   withdrawal: Withdrawal;
@@ -969,14 +987,13 @@ export async function cancelWithdrawal(
     }
 
     /*
-     * Only pending withdrawals can be cancelled.
-     *
-     * Approved withdrawals are intentionally
-     * locked because an admin has already
-     * approved them for payout.
+     * A shopkeeper may cancel their own request while it is still pending or
+     * under review. Once an admin has approved/processed it, the admin-owned
+     * payout process takes over and the shopkeeper can no longer cancel.
      */
     if (
-      withdrawal.status !== "pending"
+      withdrawal.status !== "pending" &&
+      withdrawal.status !== "under_review"
     ) {
       throw new WalletError(
         "Only pending withdrawals can be cancelled.",
@@ -1020,26 +1037,37 @@ export async function cancelWithdrawal(
       updatedAt: timestamp,
     };
 
-    /*
-     * The stored status is `rejected`.
-     *
-     * This reuses the existing WithdrawalStatus
-     * type without needing a new "cancelled"
-     * status.
-     */
+    const cancellationReason =
+      note(input.reason) ?? "Cancelled by shopkeeper.";
+
+    const timelineEntry = {
+      status: "cancelled" as const,
+      at: timestamp,
+      by: uid,
+      note: cancellationReason,
+    };
+
     const updated: Withdrawal = {
       ...withdrawal,
 
       id: withdrawalId,
 
-      status: "rejected",
+      status: "cancelled",
 
       decidedAt: timestamp,
 
       decidedBy: uid,
 
-      decisionNote:
-        "Cancelled by shopkeeper.",
+      decisionNote: cancellationReason,
+
+      cancellationReason,
+
+      cancelledAt: timestamp,
+
+      timeline: [
+        ...(withdrawal.timeline ?? []),
+        timelineEntry,
+      ],
     };
 
     /*
@@ -1048,11 +1076,13 @@ export async function cancelWithdrawal(
     tx.update(
       withdrawalRef,
       {
-        status: "rejected",
+        status: "cancelled",
         decidedAt: timestamp,
         decidedBy: uid,
-        decisionNote:
-          "Cancelled by shopkeeper.",
+        decisionNote: cancellationReason,
+        cancellationReason,
+        cancelledAt: timestamp,
+        timeline: updated.timeline,
       },
     );
 
@@ -1090,44 +1120,73 @@ export async function cancelWithdrawal(
  * WRITE: ADMIN DECISIONS
  * ======================================================= */
 
+/**
+ * Canonical admin actions.
+ *
+ * `mark_paid` is the legacy name for `complete` and is kept so the existing
+ * shop/admin API contract keeps working; both land on `paid`.
+ */
 export type WithdrawalAction =
+  | "hold"
   | "approve"
+  | "process"
+  | "complete"
+  | "mark_paid"
   | "reject"
-  | "mark_paid";
+  | "fail"
+  | "cancel"
+  | "add_note";
 
-const TRANSITIONS: Record<
-  WithdrawalAction,
-  {
-    from: WithdrawalStatus[];
-    to: WithdrawalStatus;
-  }
-> = {
+interface TransitionRule {
+  from: WithdrawalStatus[];
+  to: WithdrawalStatus;
+}
+
+/**
+ * The single authoritative lifecycle table. Every status change goes through
+ * here; nothing else may write `wallets/{shopId}/withdrawals`.
+ */
+const TRANSITIONS: Partial<Record<WithdrawalAction, TransitionRule>> = {
+  hold: {
+    from: ["pending", "approved"],
+    to: "under_review",
+  },
+
   approve: {
-    from: ["pending"],
+    from: ["pending", "under_review"],
     to: "approved",
   },
 
-  reject: {
-    from: [
-      "pending",
-      "approved",
-    ],
-    to: "rejected",
+  process: {
+    from: ["approved"],
+    to: "processing",
+  },
+
+  complete: {
+    from: ["approved", "processing"],
+    to: "paid",
   },
 
   mark_paid: {
-    from: ["approved"],
+    from: ["approved", "processing"],
     to: "paid",
   },
-};
 
-/**
- * Statuses that reserve wallet balance.
- */
-const IN_FLIGHT: WithdrawalStatus[] = [
-  "pending",
-  "approved",
-];
+  reject: {
+    from: ["pending", "under_review", "approved"],
+    to: "rejected",
+  },
+
+  fail: {
+    from: ["approved", "processing"],
+    to: "failed",
+  },
+
+  cancel: {
+    from: ["pending", "under_review"],
+    to: "cancelled",
+  },
+};
 
 /**
  * Applies an admin decision to a withdrawal.
@@ -1138,7 +1197,10 @@ export async function decideWithdrawal(
     withdrawalId: string;
     action: WithdrawalAction;
     adminUid: string;
+    adminName?: string;
     note?: unknown;
+    reason?: unknown;
+    reference?: unknown;
   },
 ): Promise<{
   withdrawal: Withdrawal;
@@ -1165,7 +1227,7 @@ export async function decideWithdrawal(
   const rule =
     TRANSITIONS[action];
 
-  if (!rule) {
+  if (action !== "add_note" && !rule) {
     throw new WalletError(
       "Unknown withdrawal action.",
       400,
@@ -1202,8 +1264,10 @@ export async function decideWithdrawal(
         );
       }
 
-      const withdrawal =
-        withdrawalSnap.data() as Withdrawal;
+      const withdrawal = {
+        id: withdrawalSnap.id,
+        ...(withdrawalSnap.data() as Omit<Withdrawal, "id">),
+      } as Withdrawal;
 
       /*
        * Read wallet.
@@ -1231,18 +1295,70 @@ export async function decideWithdrawal(
       const from =
         withdrawal.status as WithdrawalStatus;
 
+      const by =
+        input.adminName?.trim() || adminUid;
+
+      const decisionNote =
+        note(input.note);
+
+      const reason =
+        note(input.reason);
+
+      const reference =
+        note(input.reference);
+
+      const timeline = [
+        ...(withdrawal.timeline ?? []),
+      ];
+
       /*
-       * Idempotent:
-       *
-       * approve an approved withdrawal
-       * reject a rejected withdrawal
-       * etc.
+       * `add_note` never changes status; it only appends to the audit trail.
        */
-      if (from === rule.to) {
+      if (action === "add_note") {
+        const updated: Withdrawal = {
+          ...withdrawal,
+          adminNote:
+            decisionNote ?? withdrawal.adminNote,
+          timeline: [
+            ...timeline,
+            {
+              status: from,
+              at: timestamp,
+              by,
+              note: decisionNote ?? "Admin note added.",
+            },
+          ],
+        };
+
+        tx.update(withdrawalRef, {
+          adminNote: updated.adminNote,
+          timeline: updated.timeline,
+        });
+
+        return {
+          withdrawal: updated,
+          summary: toSummary(current),
+        };
+      }
+
+      if (!rule) {
+        throw new WalletError(
+          "Unknown withdrawal action.",
+          400,
+        );
+      }
+
+      const to = rule.to;
+
+      /*
+       * Idempotent: approving an already-approved withdrawal, completing an
+       * already-paid one, etc. returns the current state without re-moving any
+       * money.
+       */
+      if (from === to) {
         return {
           withdrawal,
-          summary:
-            toSummary(current),
+          summary: toSummary(current),
         };
       }
 
@@ -1260,14 +1376,10 @@ export async function decideWithdrawal(
       }
 
       const wasInFlight =
-        IN_FLIGHT.includes(
-          from,
-        );
+        IN_FLIGHT.includes(from);
 
       const isInFlight =
-        IN_FLIGHT.includes(
-          rule.to,
-        );
+        IN_FLIGHT.includes(to);
 
       let next: WalletDoc = {
         ...current,
@@ -1275,134 +1387,198 @@ export async function decideWithdrawal(
       };
 
       /*
-       * Leaving pending/approved releases
-       * the reservation.
+       * Leaving the in-flight set releases the reservation exactly once.
        */
-      if (
-        wasInFlight &&
-        !isInFlight
-      ) {
+      if (wasInFlight && !isInFlight) {
         next = {
           ...next,
-
-          pendingRequested:
-            Math.max(
-              0,
-              money(
-                current.pendingRequested -
-                  withdrawal.amount,
-              ),
+          pendingRequested: Math.max(
+            0,
+            money(
+              current.pendingRequested -
+                withdrawal.amount,
             ),
+          ),
         };
       }
 
       /*
-       * Only mark_paid increases lifetime
-       * withdrawn.
+       * Only a completed payout increases lifetime `withdrawn`. The gross
+       * amount is recorded (the platform does not withhold commission from
+       * the shopkeeper wallet).
        */
-      if (
-        rule.to === "paid"
-      ) {
+      if (to === "paid") {
         next = {
           ...next,
-
-          withdrawn:
-            money(
-              current.withdrawn +
-                withdrawal.amount,
-            ),
+          withdrawn: money(
+            current.withdrawn +
+              withdrawal.amount,
+          ),
         };
       }
 
-      const decisionNote =
-        note(input.note);
+      const timelineEntry = {
+        status: to,
+        at: timestamp,
+        by,
+        ...(decisionNote ? { note: decisionNote } : {}),
+        ...(reason ? { note: reason } : {}),
+        ...(reference ? { reference } : {}),
+      };
 
-      const updated:
-        Withdrawal = {
+      const updated: Withdrawal = {
         ...withdrawal,
-
         id: withdrawalId,
-
-        status: rule.to,
-
+        status: to,
         decidedAt: timestamp,
-
         decidedBy: adminUid,
-
-        ...(decisionNote
+        timeline: [...timeline, timelineEntry],
+        ...(decisionNote ? { decisionNote } : {}),
+        ...(reason ? { rejectReason: reason } : {}),
+        ...(to === "paid"
           ? {
-              decisionNote,
+              paidAt: timestamp,
+              ...(reference
+                ? {
+                    transactionReference: reference,
+                    payoutReference: reference,
+                  }
+                : {}),
             }
+          : {}),
+        ...(to === "cancelled"
+          ? { cancelledAt: timestamp }
           : {}),
       };
 
       /*
        * Update withdrawal once.
        */
-      tx.update(
-        withdrawalRef,
-        {
-          status: rule.to,
-          decidedAt: timestamp,
-          decidedBy: adminUid,
-
-          ...(decisionNote
-            ? {
-                decisionNote,
-              }
-            : {}),
-        },
-      );
+      tx.update(withdrawalRef, {
+        status: to,
+        decidedAt: timestamp,
+        decidedBy: adminUid,
+        timeline: updated.timeline,
+        ...(decisionNote ? { decisionNote } : {}),
+        ...(reason ? { rejectReason: reason } : {}),
+        ...(to === "paid"
+          ? {
+              paidAt: timestamp,
+              ...(reference
+                ? {
+                    transactionReference: reference,
+                    payoutReference: reference,
+                  }
+                : {}),
+            }
+          : {}),
+        ...(to === "cancelled"
+          ? { cancelledAt: timestamp }
+          : {}),
+      });
 
       /*
        * Update wallet once.
        */
-      tx.set(
-        walletRef,
-        next,
-      );
+      tx.set(walletRef, next);
 
       /*
-       * A debit ledger entry exists only
-       * when the withdrawal is actually
-       * marked paid.
+       * A debit ledger entry exists only when the withdrawal is actually paid.
        */
-      if (
-        rule.to === "paid"
-      ) {
+      if (to === "paid") {
         tx.create(
           walletRef
             .collection("entries")
             .doc(),
           {
             shopId,
-
             kind: "debit",
-
-            source:
-              "withdrawal",
-
-            amount:
-              withdrawal.amount,
-
-            note:
-              `Withdrawal ${withdrawalId} paid`,
-
-            createdAt:
-              timestamp,
+            source: "withdrawal",
+            amount: withdrawal.amount,
+            note: `Withdrawal ${withdrawalId} paid`,
+            createdAt: timestamp,
           },
         );
       }
 
       return {
         withdrawal: updated,
-
-        summary:
-          toSummary(next),
+        summary: toSummary(next),
       };
     },
   );
 }
+/* =========================================================
+ * READ: ADMIN VIEW
+ * ======================================================= */
+
+/**
+ * Every withdrawal across every shop, newest first.
+ *
+ * Uses a collection-group read so the admin dashboard never fans out per
+ * wallet. No composite index is required because ordering happens in memory
+ * (a collection-group read only needs the automatic `__name__` index).
+ */
+export async function listWithdrawalsForAdmin(): Promise<Withdrawal[]> {
+  const snapshot = await getAdminFirestore()
+    .collectionGroup("withdrawals")
+    .get();
+
+  return snapshot.docs
+    .map((d) => {
+      const withdrawal = {
+        id: d.id,
+        ...(d.data() as Omit<Withdrawal, "id">),
+      } as Withdrawal;
+
+      const shopId =
+        withdrawal.shopId ||
+        d.ref.parent.parent?.id ||
+        "";
+
+      return {
+        ...withdrawal,
+        shopId,
+        destination: maskDestination(withdrawal.destination),
+      };
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.requestedAt).getTime() -
+        new Date(a.requestedAt).getTime(),
+    );
+}
+
+/**
+ * A single withdrawal for an admin. `shopId` is required because the record
+ * lives in a subcollection; the masked destination is returned as stored.
+ */
+export async function getWithdrawalForAdmin(
+  shopId: string,
+  withdrawalId: string,
+): Promise<Withdrawal | null> {
+  if (!shopId || !withdrawalId) return null;
+
+  const snapshot = await getAdminFirestore()
+    .collection("wallets")
+    .doc(shopId)
+    .collection("withdrawals")
+    .doc(withdrawalId)
+    .get();
+
+  if (!snapshot.exists) return null;
+
+  const withdrawal = {
+    id: snapshot.id,
+    ...(snapshot.data() as Omit<Withdrawal, "id">),
+  } as Withdrawal;
+
+  return {
+    ...withdrawal,
+    destination: maskDestination(withdrawal.destination),
+  };
+}
+
 export async function completeOrderAndCreditWallet(input: {
   orderId: string;
   uid: string;

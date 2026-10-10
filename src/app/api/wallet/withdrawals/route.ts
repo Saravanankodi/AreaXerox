@@ -91,6 +91,8 @@ export async function PATCH(request: NextRequest) {
       withdrawalId?: string;
       action?: WithdrawalAction;
       note?: unknown;
+      reason?: unknown;
+      reference?: unknown;
     };
 
     try {
@@ -121,9 +123,18 @@ export async function PATCH(request: NextRequest) {
       withdrawalId,
       action: payload.action as WithdrawalAction,
       adminUid: admin.uid,
+      adminName: admin.email ?? undefined,
       note:
         typeof payload.note === "string"
           ? payload.note
+          : undefined,
+      reason:
+        typeof payload.reason === "string"
+          ? payload.reason
+          : undefined,
+      reference:
+        typeof payload.reference === "string"
+          ? payload.reference
           : undefined,
     });
 
@@ -187,6 +198,7 @@ export async function PUT(request: NextRequest) {
       shopId,
       withdrawalId,
       uid: user.uid,
+      reason: payload.reason,
     });
 
     return Response.json(result);

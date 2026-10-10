@@ -146,7 +146,7 @@ function OrderDetailContent() {
                     key={d.id}
                     role="button"
                     tabIndex={0}
-                    className="flex cursor-pointer items-center gap-3 rounded-lg border border-border px-4 py-3 transition-colors hover:bg-secondary/50"
+                    className="min-w-0 max-w-full flex cursor-pointer items-center gap-3 rounded-lg border border-border px-4 py-3 transition-colors hover:bg-secondary/50"
                     onClick={() => openDocument(d)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
@@ -157,7 +157,8 @@ function OrderDetailContent() {
                   >
                     <FileText className="h-5 w-5 shrink-0 text-primary" />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{d.name}</p>
+                      <p className="hidden sm:block truncate text-sm font-medium">{d.name}</p>
+                      <p className="block sm:hidden truncate text-sm font-medium">{d.name.slice(0,20)} ...</p>
                       <p className="text-xs text-muted-foreground">
                         {d.pages} pages · {d.sizeMb} MB
                       </p>

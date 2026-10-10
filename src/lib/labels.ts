@@ -100,8 +100,6 @@ export function nextActionLabel(next: OrderStatus): string {
  * control. REJECTED is excluded: a cancelled order can never be reviewed.
  */
 export const REVIEWABLE_ORDER_STATUSES: OrderStatus[] = [
-  "READY_PICKUP",
-  "READY_DELIVERY",
   "OUT_FOR_DELIVERY",
   "DELIVERED",
   "COMPLETED",
@@ -118,9 +116,13 @@ export const fulfillmentLabel: Record<Fulfillment, string> = {
 
 export const withdrawalStatusLabel: Record<WithdrawalStatus, string> = {
   pending: "Pending",
+  under_review: "Under review",
   approved: "Approved",
-  rejected: "Rejected",
+  processing: "Processing",
   paid: "Paid out",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
+  failed: "Failed",
 };
 
 export const walletEntrySourceLabel: Record<WalletEntrySource, string> = {

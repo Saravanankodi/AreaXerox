@@ -108,11 +108,36 @@ export type RazorpayPayoutStatus =
  * reads them through /api/wallet.
  * ======================================================= */
 
+/**
+ * Canonical withdrawal lifecycle.
+ *
+ *   pending -> under_review -> approved -> processing -> paid
+ *                                                  \-> failed
+ *   pending/under_review -> cancelled   (shopkeeper or admin)
+ *   pending/under_review/approved -> rejected
+ *
+ * `pending`, `approved`, `paid` and `rejected` are the original four states;
+ * `under_review`, `processing`, `cancelled` and `failed` were added so the
+ * admin payout workflow can run on the same record instead of a second,
+ * parallel collection.
+ */
 export type WithdrawalStatus =
   | "pending"
+  | "under_review"
   | "approved"
+  | "processing"
+  | "paid"
   | "rejected"
-  | "paid";
+  | "cancelled"
+  | "failed";
+
+export interface WithdrawalTimelineEntry {
+  status: WithdrawalStatus;
+  at: string;
+  by: string;
+  note?: string;
+  reference?: string;
+}
 
 export type WithdrawalMethod =
   | "bank"
@@ -172,6 +197,27 @@ export interface Withdrawal {
    * Optional reason supplied when cancelling.
    */
   cancellationReason?: string;
+
+  /**
+   * Reason the admin rejected/failed the request, when applicable.
+   */
+  rejectReason?: string;
+
+  /**
+   * Free-form note added by an admin.
+   */
+  adminNote?: string;
+
+  /**
+   * Reference entered when the withdrawal is actually paid out.
+   */
+  transactionReference?: string;
+
+  /**
+   * Ordered status history. Present on records created after the canonical
+   * workflow was introduced; older records may not have one.
+   */
+  timeline?: WithdrawalTimelineEntry[];
 }
 
 export type WalletEntryKind = "credit" | "debit";
@@ -198,7 +244,7 @@ export interface WalletSummary {
 
   /**
    * Spendable right now. Computed server-side as
-   * totalEarned - pendingRequested.
+   * totalEarned - pendingRequested - withdrawn, never stored.
    */
   availableBalance: number;
 

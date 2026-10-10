@@ -146,16 +146,21 @@ function StepRail({ step }: { step: number }) {
 function SectionCard({
   title,
   hint,
+  hintHidden,
   children,
 }: {
   title: string;
   hint?: React.ReactNode;
+  hintHidden?:boolean;
   children: React.ReactNode;
 }) {
   return (
     <div className="md:card-surface md:px-6 md:py-4">
       <h2 className="text-base font-semibold">{title}</h2>
-      {hint && <p className="mt-1 text-sm text-muted-foreground">{hint}</p>}
+      {hint && <p className={`mt-1 text-sm text-muted-foreground ${hintHidden && 'max-sm:hidden'} `}>
+        {hint}
+        </p>
+      }
       <div className="mt-5">{children}</div>
     </div>
   );
@@ -269,7 +274,7 @@ function FilePrintOptions({
             </SelectControl>
             <div>
               <Label className="text-xs font-semibold text-subtle">QUANTITY</Label>
-              <div className="mt-1.5 flex h-9 overflow-hidden rounded-md border border-input bg-card">
+              <div className="mt-1.5 flex h-9 overflow-hidden rounded-sm sm:rounded-md border border-input bg-card">
                 <button
                   type="button"
                   className="w-10 text-base hover:bg-secondary"
@@ -327,7 +332,6 @@ function FilePrintOptions({
               {catalog.binding.map((option) => (
                 <option key={option.id} value={option.id}>
                   {option.name}
-                  {option.price > 0 ? ` · from ${inr(option.price)}` : ""}
                 </option>
               ))}
             </SelectControl>
@@ -427,7 +431,7 @@ function SelectControl({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-1.5 h-9 w-full rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring"
+        className="mt-1.5 h-9 w-full rounded-sm sm:rounded-md border border-input bg-card px-2 py-1 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring"
       >
         {children}
       </select>
@@ -1277,13 +1281,6 @@ function OrderFlow() {
   return (
     <CustomerShell>
       <div className="container-page ">
-        {/* <h1 className="text-page-title font-bold">XEROXMATE</h1> */}
-        {/* <p className="mt-2 text-sm text-muted-foreground">
-          Step {step + 1} of {STEP_TITLES.length} — {STEP_TITLES[step]}
-        </p>
-        <div className="mt-6">
-          <StepRail step={step} />
-        </div> */}
 
         <div className={cn("mt-6 grid gap-6", step === 1 && "md:grid-cols-[1fr_340px]")}>
           <div className="space-y-4">
@@ -1329,8 +1326,9 @@ function OrderFlow() {
                 <SectionCard
                   title="Documents + specifications"
                   hint="Every file has its own print settings and quote. All options are listed below — pick them first and we will show only the shops that support your choice."
+                  hintHidden = {true}
                 >
-                  {docs.length > 0 && catalog.paperTypes.length > 0 && (
+                  {/* {docs.length > 0 && catalog.paperTypes.length > 0 && (
                     <p
                       className={cn(
                         "mb-4 rounded-md border px-3 py-2 text-xs font-medium",
@@ -1343,7 +1341,7 @@ function OrderFlow() {
                         ? `${matchingShops.length} shop${matchingShops.length === 1 ? "" : "s"} support your current specifications.`
                         : "No shop supports this combination yet — relax a setting to continue."}
                     </p>
-                  )}
+                  )} */}
                   <div className=" space-y-4  ">
                     {docs.map((document, index) => (
                       <FilePrintOptions
@@ -1544,34 +1542,6 @@ function OrderFlow() {
                     className="flex gap-2 sm:gap-3"
                     style={{ height: "min(calc(100vh - 320px), 335px)" }}
                   >
-                    {/* 3 dots — represent card position inside current set */}
-                    <div className="hidden relative sm:flex w-5 shrink-0 flex-col items-center justify-center">
-                      <div className="flex flex-col items-center gap-2">
-                        {[0, 1, 2].map((dotIdx) => {
-                          const isActive = dotIdx === activeCardIndex;
-                          return (
-                            <span
-                              key={dotIdx}
-                              data-dot={dotIdx}
-                              data-active={isActive}
-                              className="rounded-full"
-                              style={{
-                                display: "block",
-                                width: isActive ? 6 : 8,
-                                height: isActive ? 6 : 8,
-                                backgroundColor: isActive
-                                  ? "var(--color-primary)"
-                                  : "var(--color-white)",
-                                opacity: isActive ? 1 : 0.5,
-                                transform: isActive ? "scale(2)" : "scale(1)",
-                                transition: "all 300ms ease-out",
-                              }}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-
                     {/* Shop cards — scroll-snap container, one page at a time */}
                     <div
                       ref={pageScrollRef}
@@ -1637,18 +1607,22 @@ function OrderFlow() {
                                 </div>
 
                                 {/* Row 2: Address */}
-                                <div className="mt-1.5 flex items-center justify-between gap-3">
+                                <div className="mt-1.5 sm:flex items-center justify-between gap-3">
                                   <p className="mt-1.5 text-xs text-muted-foreground">
                                     {formatShopAddress(s) || "Address not set"}
                                   </p>
 
-                                  <p className="shrink-0 text-xs text-muted-foreground">
-                                    {
-                                      `${s.workingDaysFrom ?? 'Monday'} - ${s.workingDaysTo ?? 'Saturday'}  `
-                                    }
-                                    {s.openingTime && s.closingTime
-                                      ? `${formatTime12h(s.openingTime)}–${formatTime12h(s.closingTime)}`
-                                      : s.hours}
+                                  <p className="shrink-0 max-sm:flex items-center justify-end gap-2 mt-1 text-xs text-muted-foreground">
+                                    <span className="">
+                                      {
+                                        `${s.workingDaysFrom ?? 'Monday'} - ${s.workingDaysTo ?? 'Saturday'}  `
+                                      }
+                                    </span>
+                                    <span>
+                                      {s.openingTime && s.closingTime
+                                        ? `${formatTime12h(s.openingTime)}–${formatTime12h(s.closingTime)}`
+                                        : s.hours}
+                                    </span>
                                   </p>
                                 </div>
 
@@ -1921,37 +1895,47 @@ function OrderFlow() {
                               key={document.id}
                               className="flex items-center justify-between gap-4 py-2.5 text-sm"
                             >
-                              <div className="min-w-0">
-                                <p className="truncate font-medium">{document.name}</p>
-                                <p className="mt-0.5 text-xs text-muted-foreground">
+                              <div className="min-w-0 flex-1 overflow-hidden">
+                                <p
+                                  className="hidden sm:block truncate font-medium"
+                                  title={document.name}
+                                >
+                                  {document.name}
+                                </p>
+
+                                <p className="mt-0.5 truncate text-xs text-muted-foreground">
                                   {documentPrices[index]?.billablePages ?? 0} printed pages ·{" "}
                                   {fileConfig.copies} copy(ies) ·{" "}
                                   {fileConfig.printType === "bw" ? "B/W" : "Colour"} ·{" "}
                                   {fileConfig.side === "double" ? "Front & back" : "Front only"}
                                 </p>
-                                <p className="mt-0.5 text-xs text-muted-foreground">
+
+                                <p className="mt-0.5 truncate text-xs text-muted-foreground">
                                   {filePaper?.name ?? "Paper"} ·{" "}
                                   {fileConfig.bindingId
-                                    ? shop.binding.find((item) => item.id === fileConfig.bindingId)
-                                      ?.name
+                                    ? shop.binding.find(
+                                        (item) => item.id === fileConfig.bindingId
+                                      )?.name
                                     : "No binding"}
                                   {fileConfig.additionalIds.length
                                     ? ` · ${fileConfig.additionalIds
-                                      .map(
-                                        (id) =>
-                                          shop.additional.find((item) => item.id === id)?.name,
-                                      )
-                                      .filter(Boolean)
-                                      .join(", ")}`
+                                        .map(
+                                          (id) =>
+                                            shop.additional.find((item) => item.id === id)?.name
+                                        )
+                                        .filter(Boolean)
+                                        .join(", ")}`
                                     : ""}
                                 </p>
+
                                 {document.pageRange && (
-                                  <p className="mt-1 text-xs text-muted-foreground">
+                                  <p className="mt-1 truncate text-xs text-muted-foreground">
                                     Range: {document.pageRange}
                                   </p>
                                 )}
+
                                 {document.instructions && (
-                                  <p className="mt-1 text-xs text-primary">
+                                  <p className="mt-1 truncate text-xs text-primary">
                                     Note: {document.instructions}
                                   </p>
                                 )}

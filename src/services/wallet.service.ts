@@ -148,7 +148,16 @@ export function completeOrder(
  * ADMIN
  * ======================================================= */
 
-export type WithdrawalAction = "approve" | "reject" | "mark_paid";
+export type WithdrawalAction =
+  | "hold"
+  | "approve"
+  | "process"
+  | "complete"
+  | "mark_paid"
+  | "reject"
+  | "fail"
+  | "cancel"
+  | "add_note";
 
 /**
  * Admin-only. There is no admin UI for this yet — the endpoint is API-only until

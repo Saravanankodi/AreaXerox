@@ -11,7 +11,7 @@ export const dynamic = "force-static";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "XEROXMATE — Order My Xerox",
+    name: "XEROXMATE",
     short_name: "XEROXMATE",
     description:
       "Upload documents, get them printed, and track your order from pickup to delivery.",
@@ -23,25 +23,25 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#0b1220",
     icons: [
       {
-        src: "/icons/icon-192.png",
+        src: "/icons/AppIcons.png",
         sizes: "192x192",
         type: "image/png",
         purpose: "any",
       },
-      {
-        src: "/icons/icon-512.png",
-        sizes: "512x512",
-        type: "image/png",
-        purpose: "any",
-      },
-      {
-        // Inset on an opaque background so Android's circular/shape mask
-        // cannot clip the mark.
-        src: "/icons/maskable-512.png",
-        sizes: "512x512",
-        type: "image/png",
-        purpose: "maskable",
-      },
+      // {
+      //   src: "/icons/icon-512.png",
+      //   sizes: "512x512",
+      //   type: "image/png",
+      //   purpose: "any",
+      // },
+      // {
+      //   // Inset on an opaque background so Android's circular/shape mask
+      //   // cannot clip the mark.
+      //   src: "/icons/maskable-512.png",
+      //   sizes: "512x512",
+      //   type: "image/png",
+      //   purpose: "maskable",
+      // },
     ],
   };
 }
