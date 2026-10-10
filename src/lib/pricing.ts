@@ -89,19 +89,33 @@ export function calculateOrderPrice(
 ): PriceBreakdown {
   const lines = calculateDocumentPrices(shop, docs, fallbackConfig);
   const subtotal = money(lines.reduce((sum, line) => sum + line.total, 0));
+
   const delivery =
     fulfillment === "delivery" && shop?.delivery.enabled
       ? shop.delivery.freeAbove !== null && subtotal >= shop.delivery.freeAbove
         ? 0
         : money(shop.delivery.fee)
       : 0;
+
+  const baseTotal = money(subtotal + delivery);
+
+  // 2% service charge on the current total
+  const serviceCharge = money(baseTotal * 0.02);
+
+  // 18% GST on the service charge only
+  const gst = money(serviceCharge * 0.18);
+
+  const extraCharges = money(serviceCharge + gst);
+
   return {
     printing: money(lines.reduce((sum, line) => sum + line.printing, 0)),
     binding: money(lines.reduce((sum, line) => sum + line.binding, 0)),
-    services: money(lines.reduce((sum, line) => sum + line.services, 0)),
+    services: money(
+      lines.reduce((sum, line) => sum + line.services, 0) + extraCharges,
+    ),
     delivery,
     discount: 0,
-    total: money(subtotal + delivery),
+    total: money(baseTotal + extraCharges),
     billablePages: lines.reduce((sum, line) => sum + line.billablePages, 0),
   };
 }

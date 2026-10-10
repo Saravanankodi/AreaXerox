@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AppProviders } from "@/components/providers/AppProviders";
+import { GoogleAnalytics } from "@next/third-parties/google";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-full flex flex-col">
         <AppProviders>{children}</AppProviders>
       </body>
+      <GoogleAnalytics gaId="G-2F260LW5XG" />
     </html>
   );
 }
